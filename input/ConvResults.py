@@ -248,41 +248,57 @@ def create_profit_gain_heatmap(results_dir, player_num=1, experiment_name="*", f
     figsize : tuple
         Figure size in inches
     """
+
     # Resolve the full path if a relative path is provided
     results_dir = os.path.abspath(results_dir)
     
-    # Get all experiment directories matching the pattern
-    pattern = f"{experiment_name}_alpha_*"
-    exp_dirs = glob(os.path.join(results_dir, pattern))
+    # First get the experiment directory
+    exp_dir = os.path.join(results_dir, experiment_name)
+    if not os.path.exists(exp_dir):
+        raise ValueError(f"No experiment directory found: {exp_dir}")
     
-    if not exp_dirs:
-        raise ValueError(f"No experiments found matching pattern '{pattern}' in {results_dir}")
     
+    # Get all alpha-beta directories (including timestamps)
+    pattern = "alpha_*_beta_*_*"  # Matches "alpha_X_beta_Y_timestamp"
+    run_dirs = glob(os.path.join(exp_dir, pattern))
+    
+    if not run_dirs:
+        raise ValueError(f"No run directories found matching pattern '{pattern}' in {exp_dir}")
+    
+
     # Extract alpha and beta values from directory names
     alpha_values = []
     beta_values = []
     profit_gains = []
     
-    for exp_dir in exp_dirs:
-        # Extract alpha and beta from directory name
-        dir_name = os.path.basename(exp_dir)
-        parts = dir_name.split('_')
-        # Find indices of alpha and beta in the directory name
-        alpha_idx = parts.index('alpha') + 1
-        beta_idx = parts.index('beta') + 1
-        
-        alpha = float(parts[alpha_idx])
-        beta = float(parts[beta_idx])
-        
-        # Read cycle statistics
-        stats_file = os.path.join(exp_dir, "cycle_statistics.csv")
-        if os.path.exists(stats_file):
-            df = pd.read_csv(stats_file)
-            profit_gain = float(df[f'mean_profit_gain_p{player_num}'].iloc[0])
+    for run_dir in run_dirs:
+        try:
+            # Extract alpha and beta from directory name
+            dir_name = os.path.basename(run_dir)
+            # The format should be "alpha_X_beta_Y_timestamp"
+            alpha_str = dir_name.split('alpha_')[1].split('_beta_')[0]
+            beta_str = dir_name.split('beta_')[1].split('_')[0]
             
-            alpha_values.append(alpha)
-            beta_values.append(beta)
-            profit_gains.append(profit_gain)
+            alpha = float(alpha_str)
+            beta = float(beta_str)
+            
+            # Read cycle statistics
+            stats_file = os.path.join(run_dir, "cycle_statistics.csv")
+            if os.path.exists(stats_file):
+                df = pd.read_csv(stats_file)
+                profit_gain = float(df[f'mean_profit_gain_p{player_num}'].iloc[0])
+                
+                alpha_values.append(alpha)
+                beta_values.append(beta)
+                profit_gains.append(profit_gain)
+                
+        except (IndexError, ValueError) as e:
+            print(f"Skipping directory {dir_name} due to parsing error: {e}")
+            continue
+    
+    if not alpha_values:
+        raise ValueError("No valid data found to create heatmap")
+    
     
     # Create and return the heatmap
     return _create_heatmap(alpha_values, beta_values, profit_gains, player_num, figsize)
