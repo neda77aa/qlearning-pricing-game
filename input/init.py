@@ -70,15 +70,14 @@ class model(object):
         # Derived properties
         self.num_states = self.k ** (self.n * self.memory)
         self.num_actions = self.k ** self.n
-        # self.length_states = max(1, self.n * self.memory)
-        self.length_strategies = self.n * self.num_states
         self.num_periods = self.num_states + 1
 
         # Game logs 
         # Initialize all the variables with zeros
         self.converged = np.zeros(self.num_sessions, dtype=bool)  # Convergence status
         self.time_to_convergence = np.zeros(self.num_sessions, dtype=float)  # Time to convergence
-        self.index_strategies = np.zeros((self.length_strategies, self.num_sessions), dtype=int)
+        # Initialize with same shape as Q but without the last axis (k)
+        self.index_strategies = np.zeros((self.n,) + self.sdim + (self.num_sessions,), dtype=int)
         self.index_last_state = np.zeros((self.n, self.memory, self.num_sessions), dtype=int)  # Last states
         self.cycle_length = np.zeros(self.num_sessions, dtype=int)  # Cycle length
         self.cycle_states = np.zeros((self.num_periods, self.num_sessions), dtype=int)  # Cycle states

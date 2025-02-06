@@ -121,6 +121,7 @@ def run_sessions(game):
     for iSession in range(game.num_sessions):
         if game.aprint:
             print(f"\nStarting Session {iSession + 1}/{game.num_sessions}")
+            print(game.NashProfits,  game.CoopProfits)
 
         game.Q = game.init_Q()  # Reset Q-values
         game.last_observed_prices = np.zeros((game.n, game.memory), dtype=int)  # Reset prices
@@ -136,16 +137,21 @@ def run_sessions(game):
         game.index_last_state[:, :,iSession] = game.last_observed_prices
 
         # Store the learned strategies (optimal strategies at convergence)
-        game.index_strategies[:,iSession] = game.Q.argmax(axis=-1).flatten()
+        game.index_strategies[..., iSession] = game.Q.argmax(axis=-1)
 
         # If converged, analyze post-convergence cycles
         if converged:
             # During session simulation
-            cycle_length, visited_states, visited_profits, price_history = detect_cycle(game, game.index_strategies[:, iSession])
-
+            cycle_length, visited_states, visited_profits, price_history = detect_cycle(game, game.index_strategies[:, iSession],iSession)
             # You can then use these results to compute aggregate statistics
             avg_profits = np.mean(visited_profits, axis=0)
-        #     post_convergence_analysis(game)
+            print('cycle length',cycle_length)
+            print('visited_states',visited_states)
+            print('visited_profits',visited_profits)
+            print('price_history',price_history)
+
+
+        #post_convergence_analysis(game)
 
     print("\nAll sessions completed.")
     return game
@@ -175,31 +181,29 @@ def detect_cycle(game, optimal_strategy, session_idx):
     """
     # Initialize arrays to store visited states and profits
     visited_states = np.zeros(game.num_periods, dtype=int)
-    visited_profits = np.zeros((game.num_periods, game.n))
-    price_history = np.zeros((game.num_periods, game.n), dtype=int)
+    visited_profits = np.zeros((game.n, game.num_periods))
+    price_history = np.zeros((game.n, game.num_periods), dtype=int)
     
     # Initialize with last observed prices
     p = np.copy(game.last_observed_prices)  # Shape: (n, memory)
     
     # Get initial optimal actions from current state
-    current_state = compute_state_number(game, p)
-    p_prime = optimal_strategy[current_state]
+    p_prime = game.index_strategies[:, *p.flatten(), session_idx]
+    old_argmax = np.argmax(game.Q[:, *p], axis=-1)
     
     # Main loop for detecting cycles
     for i_period in range(game.num_periods):
         # Update price history
         if game.memory > 1:
-            p[1:, :] = p[:-1, :]  # Shift older prices up
-        p[0, :] = p_prime  # Update most recent prices
-        price_history[i_period] = p_prime
-        
+            p[:, 1:] = p[:, :-1]  # Shift older prices up
+        p[:, 0] = p_prime  # Update most recent prices
+        price_history[:, i_period] = p_prime
+
         # Record current state
         visited_states[i_period] = compute_state_number(game, p)
         
         # Compute and record profits
-        for i_agent in range(game.n):
-            action_number = compute_action_number(game, p_prime)
-            visited_profits[i_period, i_agent] = game.PI[tuple(action_number)][i_agent]
+        visited_profits[:, i_period] = game.PI[tuple(p_prime)]
         
         # Check if we've seen this state before (cycle detection)
         if i_period >= 1:
@@ -211,8 +215,8 @@ def detect_cycle(game, optimal_strategy, session_idx):
                     # Trim arrays to only include the cycle
                     cycle_start = i_period - cycle_length + 1
                     visited_states = visited_states[cycle_start:i_period + 1]
-                    visited_profits = visited_profits[cycle_start:i_period + 1]
-                    price_history = price_history[cycle_start:i_period + 1]
+                    visited_profits = visited_profits[:, cycle_start:i_period + 1]
+                    price_history = price_history[:, cycle_start:i_period + 1]
                     
                     # Update game parameters
                     game.cycle_length[session_idx] = cycle_length
@@ -222,16 +226,16 @@ def detect_cycle(game, optimal_strategy, session_idx):
                     
                     # Update cycle prices
                     for i in range(game.n):
-                        game.cycle_prices[i, :cycle_length, session_idx] = price_history[:cycle_length, i]
+                        game.cycle_prices[i, :cycle_length, session_idx] = price_history[i, :cycle_length]
                     
                     # Update cycle profits
                     for i in range(game.n):
-                        game.cycle_profits[i, :cycle_length, session_idx] = visited_profits[:cycle_length, i]
+                        game.cycle_profits[i, :cycle_length, session_idx] = visited_profits[i, :cycle_length]
                     
                     return cycle_length, visited_states, visited_profits, price_history
         
         # Update p_prime for next iteration
-        p_prime = optimal_strategy[visited_states[i_period]]
+        p_prime = game.index_strategies[:, *p.flatten(), session_idx]
     
     # If no cycle found, update game parameters with full period data
     game.cycle_length[session_idx] = game.num_periods

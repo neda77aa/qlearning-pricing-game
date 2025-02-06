@@ -15,5 +15,5 @@ from input.qlearning import simulate_game, run_sessions
 
 ####
 #game = model(n=2, k = 15, memory = 1,alpha=0.0075, beta=0.01/25000, num_sessions = 5)
-game = model(n=3, k = 15, memory = 1,alpha=0.01, num_sessions = 5, aprint = True)
+game = model(n=2, k = 15, memory = 1,alpha=0.01, num_sessions = 5, aprint = True)
 game_equilibrium = run_sessions(game)
