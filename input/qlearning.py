@@ -273,32 +273,3 @@ def compute_state_number(game, prices):
         multiplier *= game.k
     
     return state
-
-
-def save_convergence_results(game, iSession, cycle_length, visited_states, visited_profits):
-    """
-    Saves the results of convergence analysis.
-
-    Parameters:
-    -----------
-    game : object
-        Game instance containing session data.
-    iSession : int
-        The session number.
-    cycle_length : int
-        The length of the detected cycle.
-    visited_states : np.ndarray
-        The sequence of visited states before convergence.
-    visited_profits : np.ndarray
-        The profits recorded before convergence.
-    """
-    filename = "convergence_results.txt"
-
-    with open(filename, "a") as file:
-        file.write(f"Session {iSession}\n")
-        file.write(f"Converged: {game.converged[iSession]}\n")
-        file.write(f"Time to Convergence: {game.time_to_convergence[iSession]}\n")
-        file.write(f"Cycle Length: {cycle_length}\n")
-        file.write(f"Visited States: {visited_states.tolist()}\n")
-        file.write(f"Visited Profits: {visited_profits.tolist()}\n")
-        file.write(f"Optimal Strategy: {game.index_strategies[:, iSession].tolist()}\n\n")
