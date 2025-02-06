@@ -60,13 +60,16 @@ def update_q(game, s, a, sprime, pi, stable):
 def check_convergence(game, t, stable):
     """Check if game converged"""
     if (t % game.tstable == 0) & (t > 0):
-        sys.stdout.write("\rt=%i" % t)
-        sys.stdout.flush()
+        if game.aprint:
+            sys.stdout.write("\rt=%i" % t)
+            sys.stdout.flush()
     if stable > game.tstable:
-        print('Converged!')
+        if game.aprint:
+            print('Converged!')
         return True
     if t == game.tmax:
-        print('ERROR! Not Converged!')
+        if game.aprint:
+            print('ERROR! Not Converged!')
         return True
     return False
 
@@ -116,7 +119,11 @@ def run_sessions(game):
         The updated game instance after running multiple sessions.
     """
     for iSession in range(game.num_sessions):
-        print(f"\nStarting Session {iSession + 1}/{game.num_sessions}")
+        if game.aprint:
+            print(f"\nStarting Session {iSession + 1}/{game.num_sessions}")
+
+        game.Q = game.init_Q()  # Reset Q-values
+        game.last_observed_prices = np.zeros((game.n, game.memory), dtype=int)  # Reset prices
 
         # Run Q-learning for this session
         game, converged, t_convergence = simulate_game(game)
@@ -125,70 +132,143 @@ def run_sessions(game):
         game.converged[iSession] = converged
         game.time_to_convergence[iSession] = t_convergence
 
+        # Store last observed prices
+        game.index_last_state[:, :,iSession] = game.last_observed_prices
+
+        # Store the learned strategies (optimal strategies at convergence)
+        game.index_strategies[:,iSession] = game.Q.argmax(axis=-1).flatten()
+
         # If converged, analyze post-convergence cycles
         if converged:
-            post_convergence_analysis(game)
+            # During session simulation
+            cycle_length, visited_states, visited_profits, price_history = detect_cycle(game, game.index_strategies[:, iSession])
+
+            # You can then use these results to compute aggregate statistics
+            avg_profits = np.mean(visited_profits, axis=0)
+        #     post_convergence_analysis(game)
 
     print("\nAll sessions completed.")
     return game
 
 
-def detect_cycle(game, optimal_strategy):
+def detect_cycle(game, optimal_strategy, session_idx):
     """
-    Detects cycles in observed price states.
-
+    Detects cycles in the game states and computes related metrics.
+    Updates game parameters with cycle information.
+    
     Parameters:
     -----------
     game : object
-        Game instance containing state information.
-    optimal_strategy : np.ndarray
-        The optimal strategy matrix for each state.
-
+        Game instance containing state information and parameters
+    optimal_strategy : ndarray
+        Array containing optimal strategies for each state
+    session_idx : int
+        Current session index for updating game parameters
+    
     Returns:
     --------
-    cycle_length : int
-        The detected cycle length.
-    visited_states : np.ndarray
-        The states visited before cycle detection.
-    visited_profits : np.ndarray
-        The profits recorded before cycle detection.
+    tuple:
+        - cycle_length: Length of the detected cycle
+        - visited_states: Array of states visited during simulation
+        - visited_profits: Array of profits for each state visited
+        - price_history: History of prices chosen by agents
     """
-    visited_states = []
-    visited_profits = []
-    p_hist = []
+    # Initialize arrays to store visited states and profits
+    visited_states = np.zeros(game.num_periods, dtype=int)
+    visited_profits = np.zeros((game.num_periods, game.n))
+    price_history = np.zeros((game.num_periods, game.n), dtype=int)
     
     # Initialize with last observed prices
-    p = np.copy(game.last_observed_prices)
+    p = np.copy(game.last_observed_prices)  # Shape: (n, memory)
     
-    # Compute initial state and action
-    state = game.compute_state_number(p)
-    action = optimal_strategy[state]
+    # Get initial optimal actions from current state
+    current_state = compute_state_number(game, p)
+    p_prime = optimal_strategy[current_state]
     
-    for iPeriod in range(game.num_periods):
+    # Main loop for detecting cycles
+    for i_period in range(game.num_periods):
         # Update price history
-        p_hist.append(action)
+        if game.memory > 1:
+            p[1:, :] = p[:-1, :]  # Shift older prices up
+        p[0, :] = p_prime  # Update most recent prices
+        price_history[i_period] = p_prime
         
-        # Compute new state number and record it
-        state = game.compute_state_number(p)
-        visited_states.append(state)
+        # Record current state
+        visited_states[i_period] = compute_state_number(game, p)
         
-        # Compute profit and store
-        profit = game.PI[tuple(action)]
-        visited_profits.append(profit)
+        # Compute and record profits
+        for i_agent in range(game.n):
+            action_number = compute_action_number(game, p_prime)
+            visited_profits[i_period, i_agent] = game.PI[tuple(action_number)][i_agent]
         
-        # Check for cycle (if state repeats)
-        if state in visited_states[:-1]:  # Ignore the last entry (current state)
-            first_occurrence = visited_states.index(state)
-            cycle_length = iPeriod - first_occurrence
-            return cycle_length, np.array(visited_states), np.array(visited_profits)
+        # Check if we've seen this state before (cycle detection)
+        if i_period >= 1:
+            for prev_period in range(i_period):
+                if visited_states[prev_period] == visited_states[i_period]:
+                    # Cycle found
+                    cycle_length = i_period - prev_period
+                    
+                    # Trim arrays to only include the cycle
+                    cycle_start = i_period - cycle_length + 1
+                    visited_states = visited_states[cycle_start:i_period + 1]
+                    visited_profits = visited_profits[cycle_start:i_period + 1]
+                    price_history = price_history[cycle_start:i_period + 1]
+                    
+                    # Update game parameters
+                    game.cycle_length[session_idx] = cycle_length
+                    
+                    # Update cycle states (pad with zeros if needed)
+                    game.cycle_states[:len(visited_states), session_idx] = visited_states
+                    
+                    # Update cycle prices
+                    for i in range(game.n):
+                        game.cycle_prices[i, :cycle_length, session_idx] = price_history[:cycle_length, i]
+                    
+                    # Update cycle profits
+                    for i in range(game.n):
+                        game.cycle_profits[i, :cycle_length, session_idx] = visited_profits[:cycle_length, i]
+                    
+                    return cycle_length, visited_states, visited_profits, price_history
         
-        # Update action based on strategy
-        action = optimal_strategy[state]
+        # Update p_prime for next iteration
+        p_prime = optimal_strategy[visited_states[i_period]]
     
-    return game.num_periods, np.array(visited_states), np.array(visited_profits)  # If no cycle detected, return full period
+    # If no cycle found, update game parameters with full period data
+    game.cycle_length[session_idx] = game.num_periods
+    game.cycle_states[:, session_idx] = visited_states
+    
+    for i in range(game.n):
+        game.cycle_prices[i, :, session_idx] = price_history[:, i]
+        game.cycle_profits[i, :, session_idx] = visited_profits[:, i]
+    
+    return game.num_periods, visited_states, visited_profits, price_history
 
 
-
+def compute_state_number(game, prices):
+    """
+    Compute the state number from a price configuration.
+    
+    Parameters:
+    -----------
+    game : object
+        Game instance containing grid parameters
+    prices : ndarray
+        Array of prices, shape (memory, n)
+    
+    Returns:
+    --------
+    int : State number
+    """
+    state = 0
+    multiplier = 1
+    
+    # Flatten prices array and convert to index in state space
+    flat_prices = prices.flatten()
+    for i in range(len(flat_prices)):
+        state += flat_prices[i] * multiplier
+        multiplier *= game.k
+    
+    return state
 
 
 def save_convergence_results(game, iSession, cycle_length, visited_states, visited_profits):

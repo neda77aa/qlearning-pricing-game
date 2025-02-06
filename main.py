@@ -12,14 +12,8 @@ import numpy as np
 from input.init import model
 from input.qlearning import simulate_game, run_sessions
 
-# Init algorithm
-#game = model()
-
-# Compute equilibrium
-#game_equilibrium = simulate_game(game)
-
 
 ####
-print("Special Case: beta = 0.005 and alpha = 0.0025")
-game = model(n=2, k = 10, memory = 2,alpha=0.0025, beta=0.005, num_sessions = 10)
-game_equilibrium = simulate_game(game)
+#game = model(n=2, k = 15, memory = 1,alpha=0.0075, beta=0.01/25000, num_sessions = 5)
+game = model(n=3, k = 15, memory = 1,alpha=0.01, num_sessions = 5, aprint = True)
+game_equilibrium = run_sessions(game)

@@ -52,6 +52,7 @@ class model(object):
         self.num_sessions = kwargs.get('num_sessions', 100)
         self.tstable = kwargs.get('tstable', 1e5)
         self.tmax = kwargs.get('tmax', 1e7)
+        self.aprint = kwargs.get('aprint', True)
 
         # Derived state and action space
         self.adim, self.sdim, self.s0 = self.init_state()
@@ -69,7 +70,7 @@ class model(object):
         # Derived properties
         self.num_states = self.k ** (self.n * self.memory)
         self.num_actions = self.k ** self.n
-        self.length_states = max(1, self.n * self.memory)
+        # self.length_states = max(1, self.n * self.memory)
         self.length_strategies = self.n * self.num_states
         self.num_periods = self.num_states + 1
 
@@ -77,8 +78,8 @@ class model(object):
         # Initialize all the variables with zeros
         self.converged = np.zeros(self.num_sessions, dtype=bool)  # Convergence status
         self.time_to_convergence = np.zeros(self.num_sessions, dtype=float)  # Time to convergence
-        self.index_strategies = np.zeros((self.length_strategies, self.num_sessions), dtype=int)  # Strategies
-        self.index_last_state = np.zeros((self.length_states, self.num_sessions), dtype=int)  # Last states
+        self.index_strategies = np.zeros((self.length_strategies, self.num_sessions), dtype=int)
+        self.index_last_state = np.zeros((self.n, self.memory, self.num_sessions), dtype=int)  # Last states
         self.cycle_length = np.zeros(self.num_sessions, dtype=int)  # Cycle length
         self.cycle_states = np.zeros((self.num_periods, self.num_sessions), dtype=int)  # Cycle states
         self.cycle_prices = np.zeros((self.n, self.num_periods, self.num_sessions), dtype=float)  # Cycle prices
