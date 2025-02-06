@@ -25,11 +25,13 @@ game = model(n=2, k = 15, memory = 1,alpha=0.0075, beta=0.01/25000, num_sessions
 alpha_values = np.linspace(0.0025, 0.25, 5)  # 10 values between 0.001 and 0.01
 beta_values = np.linspace(0.005/25000, 0.5/25000, 5)   # 10 values between 0.001 and 0.01
 
+
+experiment_name = "baseline_experiment"
 # Run experiments
-game = run_experiment(game, alpha_values, beta_values, num_sessions=5)
+game = run_experiment(game, alpha_values, beta_values, num_sessions=5, experiment_name = experiment_name)
 
 
 # For a single player
-fig = create_profit_gain_heatmap("experiments", player_num=1)
+fig = create_profit_gain_heatmap("../Results/experiments", player_num=1, experiment_name = experiment_name)
 plt.savefig('player1_heatmap.png', dpi=300, bbox_inches='tight')
 plt.close()

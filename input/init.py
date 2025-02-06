@@ -51,7 +51,7 @@ class model(object):
         self.memory = kwargs.get('memory', 1)
         self.num_sessions = kwargs.get('num_sessions', 100)
         self.tstable = kwargs.get('tstable', 1e5)
-        self.tmax = kwargs.get('tmax', 1e7)
+        self.tmax = kwargs.get('tmax', 1e8)
         self.aprint = kwargs.get('aprint', True)
 
         # Derived state and action space

@@ -8,22 +8,25 @@ import os
 from glob import glob
 
 class ExperimentSaver:
-    def __init__(self, base_dir="experiments"):
-        """Initialize experiment saver with base directory"""
-        self.base_dir = base_dir
-        self._setup_directories()
+    def __init__(self, experiment_name):
+        self.base_dir = "../Results/experiments"
+        self.experiment_name = experiment_name
+        self.experiment_dir = os.path.join(self.base_dir, experiment_name)
+        self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")  # Add this line
+        os.makedirs(self.experiment_dir, exist_ok=True)
         
     def _setup_directories(self):
         """Create necessary directories if they don't exist"""
-        if not os.path.exists(self.base_dir):
-            os.makedirs(self.base_dir)
+        os.makedirs(self.experiment_dir, exist_ok=True)
             
-    def create_experiment_id(self, params):
-        """Create unique experiment identifier"""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        return f"exp_{timestamp}"
+    def get_run_dir(self, alpha, beta):
+        """Create directory for specific alpha-beta combination"""
+        run_name = f"alpha_{alpha}_beta_{beta}_{self.timestamp}"
+        run_dir = os.path.join(self.experiment_dir, run_name)
+        os.makedirs(run_dir, exist_ok=True)
+        return run_dir
         
-    def save_experiment_config(self, game, experiment_id):
+    def save_experiment_config(self, game, run_dir):
         """Save experiment configuration to CSV"""
         config = {
             'Model': 1,  # Assuming this is always 1 based on your example
@@ -54,14 +57,12 @@ class ExperimentSaver:
         }
         
         df = pd.DataFrame([config])
-        config_path = os.path.join(self.base_dir, experiment_id, "config.csv")
-        os.makedirs(os.path.dirname(config_path), exist_ok=True)
+        config_path = os.path.join(run_dir, "config.csv")
         df.to_csv(config_path, index=False)
         
-    def save_session_results(self, game, experiment_id):
+    def save_session_results(self, game, run_dir):
         """Save aggregated session results"""
-        session_dir = os.path.join(self.base_dir, experiment_id, "sessions")
-        os.makedirs(session_dir, exist_ok=True)
+        os.makedirs(run_dir, exist_ok=True)
         
         # Save session summaries
         session_summaries = {
@@ -83,9 +84,9 @@ class ExperimentSaver:
                 prices = game.cycle_prices[i_player, :cycle_len, i_session]
                 profits = game.cycle_profits[i_player, :cycle_len, i_session]
                 
-                # Convert arrays to strings with comma separation
-                prices_str = ','.join(map(str, prices))
-                profits_str = ','.join(map(str, profits))
+                # Convert arrays to strings with comma separation, formatting to 5 digits
+                prices_str = ','.join([f"{p:.5g}" for p in prices])
+                profits_str = ','.join([f"{p:.5g}" for p in profits])
                 
                 prices_list.append(prices_str)
                 profits_list.append(profits_str)
@@ -93,23 +94,21 @@ class ExperimentSaver:
             session_summaries[f'cycle_prices_p{player_num}'] = prices_list
             session_summaries[f'cycle_profits_p{player_num}'] = profits_list
         
-        
         df_summaries = pd.DataFrame(session_summaries)
-        df_summaries.to_csv(os.path.join(session_dir, "session_summaries.csv"), index=False)
+        df_summaries.to_csv(os.path.join(run_dir, "session_summaries.csv"), index=False)
         
         # Save compressed arrays for detailed data
         np.savez_compressed(
-            os.path.join(session_dir, "session_details.npz"),
+            os.path.join(run_dir, "session_details.npz"),
             cycle_states=game.cycle_states,
             cycle_prices=game.cycle_prices,
             cycle_profits=game.cycle_profits,
             index_strategies=game.index_strategies
         )
-        
-    def save_cycle_statistics(self, game, experiment_id):
+
+    def save_cycle_statistics(self, game, run_dir):
         """Save cycle statistics across all sessions"""
-        stats_dir = os.path.join(self.base_dir, experiment_id)
-        os.makedirs(stats_dir, exist_ok=True)
+        os.makedirs(run_dir, exist_ok=True)
 
         # Calculate mean profits only up to cycle length for each session
         mean_profits = np.zeros((game.n, game.num_sessions))
@@ -121,17 +120,17 @@ class ExperimentSaver:
                 mean_profits[i_player, i_session] = np.mean(game.cycle_profits[i_player, :cycle_len, i_session])
                 profit_gains[i_player, i_session] = (mean_profits[i_player, i_session] - game.NashProfits[i_player]) / (game.CoopProfits[i_player] - game.NashProfits[i_player])
         
-       # Calculate statistics
+        # Calculate statistics
         cycle_stats = {
-            'mean_cycle_length': np.mean(game.cycle_length),
-            'std_cycle_length': np.std(game.cycle_length),
-            'convergence_rate': np.mean(game.converged),
-            'mean_convergence_time': np.mean(game.time_to_convergence)
+            'mean_cycle_length': f"{np.mean(game.cycle_length):.5g}",
+            'std_cycle_length': f"{np.std(game.cycle_length):.5g}",
+            'convergence_rate': f"{np.mean(game.converged):.5g}",
+            'mean_convergence_time': f"{np.mean(game.time_to_convergence):.5g}"
         }
         
         # Add statistics for each player
         for i_player in range(game.n):
-            player_num = i_player + 1  # For naming convention (player 1, player 2, etc.)
+            player_num = i_player + 1
             cycle_stats.update({
                 f'mean_profit_p{player_num}': f"{np.mean(mean_profits[i_player]):.5g}",
                 f'std_profit_p{player_num}': f"{np.std(mean_profits[i_player]):.5g}",
@@ -140,23 +139,21 @@ class ExperimentSaver:
             })
 
         df_stats = pd.DataFrame([cycle_stats])
-        df_stats.to_csv(os.path.join(stats_dir, "cycle_statistics.csv"), index=False)
+        df_stats.to_csv(os.path.join(run_dir, "cycle_statistics.csv"), index=False)
 
-
-def save_experiment(game):
+def save_experiment(game, experiment_name, alpha, beta):
     """Main function to save all experiment data"""
-    saver = ExperimentSaver()
-    experiment_id = saver.create_experiment_id({})
+    saver = ExperimentSaver(experiment_name)
+    run_dir = saver.get_run_dir(alpha, beta)  # Use the get_run_dir method
     
     # Save all components
-    saver.save_experiment_config(game, experiment_id)
-    saver.save_session_results(game, experiment_id)
-    saver.save_cycle_statistics(game, experiment_id)
+    saver.save_experiment_config(game, run_dir)
+    saver.save_session_results(game, run_dir)
+    saver.save_cycle_statistics(game, run_dir)
     
-    return experiment_id
+    return run_dir
 
-
-def run_experiment(game, alpha_values, beta_values, num_sessions=1000):
+def run_experiment(game, alpha_values, beta_values, num_sessions=1000, experiment_name = 'test'):
     """
     Run experiments with different alpha and beta values
     
@@ -171,7 +168,6 @@ def run_experiment(game, alpha_values, beta_values, num_sessions=1000):
     num_sessions : int
         Number of sessions per experiment
     """
-    results_handler = ExperimentSaver()
     
     for i, alpha in enumerate(alpha_values):
         for j, beta in enumerate(beta_values):
@@ -226,9 +222,7 @@ def run_experiment(game, alpha_values, beta_values, num_sessions=1000):
                         print('price_history:', price_history)
 
             # Save results for this alpha-beta combination
-            results_handler.save_experiment_config(game, experiment_id)
-            results_handler.save_session_results(game, experiment_id)
-            results_handler.save_cycle_statistics(game, experiment_id)
+            run_dir = save_experiment(game, experiment_name, alpha, beta)
 
             if game.aprint:
                 print(f"\nCompleted experiment for alpha={alpha}, beta={beta}")
@@ -238,21 +232,31 @@ def run_experiment(game, alpha_values, beta_values, num_sessions=1000):
     return game
 
 
-def create_profit_gain_heatmap(base_dir, player_num=1, figsize=(10, 8)):
+
+def create_profit_gain_heatmap(results_dir, player_num=1, experiment_name="*", figsize=(10, 8)):
     """
     Creates a heatmap of mean profit gains for a specific player across different alpha and beta values.
     
     Parameters:
     -----------
-    base_dir : str
-        Base directory containing experiment results
+    results_dir : str
+        Directory containing experiment results (can be relative or absolute)
     player_num : int
         Player number to plot (1, 2, etc.)
+    experiment_name : str
+        Pattern to match specific experiments (default "*" matches all)
     figsize : tuple
         Figure size in inches
     """
-    # Get all experiment directories
-    exp_dirs = glob(os.path.join(base_dir, "alpha_*"))
+    # Resolve the full path if a relative path is provided
+    results_dir = os.path.abspath(results_dir)
+    
+    # Get all experiment directories matching the pattern
+    pattern = f"{experiment_name}_alpha_*"
+    exp_dirs = glob(os.path.join(results_dir, pattern))
+    
+    if not exp_dirs:
+        raise ValueError(f"No experiments found matching pattern '{pattern}' in {results_dir}")
     
     # Extract alpha and beta values from directory names
     alpha_values = []
@@ -262,8 +266,13 @@ def create_profit_gain_heatmap(base_dir, player_num=1, figsize=(10, 8)):
     for exp_dir in exp_dirs:
         # Extract alpha and beta from directory name
         dir_name = os.path.basename(exp_dir)
-        alpha = float(dir_name.split('_')[1])
-        beta = float(dir_name.split('_')[3])
+        parts = dir_name.split('_')
+        # Find indices of alpha and beta in the directory name
+        alpha_idx = parts.index('alpha') + 1
+        beta_idx = parts.index('beta') + 1
+        
+        alpha = float(parts[alpha_idx])
+        beta = float(parts[beta_idx])
         
         # Read cycle statistics
         stats_file = os.path.join(exp_dir, "cycle_statistics.csv")
@@ -275,6 +284,36 @@ def create_profit_gain_heatmap(base_dir, player_num=1, figsize=(10, 8)):
             beta_values.append(beta)
             profit_gains.append(profit_gain)
     
+    # Create and return the heatmap
+    return _create_heatmap(alpha_values, beta_values, profit_gains, player_num, figsize)
+
+def plot_all_players_heatmaps(results_dir, num_players, experiment_name="*"):
+    """
+    Creates heatmaps for all players' profit gains.
+    
+    Parameters:
+    -----------
+    results_dir : str
+        Directory containing experiment results
+    num_players : int
+        Number of players in the game
+    experiment_name : str
+        Pattern to match specific experiments
+    """
+    fig, axes = plt.subplots(1, num_players, figsize=(6*num_players, 5))
+    if num_players == 1:
+        axes = [axes]
+    
+    for i in range(num_players):
+        plt.sca(axes[i])
+        create_profit_gain_heatmap(results_dir, i+1, experiment_name, figsize=None)
+        axes[i].set_title(f'Player {i+1}')
+    
+    plt.tight_layout()
+    return fig
+
+def _create_heatmap(alpha_values, beta_values, profit_gains, player_num, figsize):
+    """Helper function to create the actual heatmap"""
     # Convert to numpy arrays
     alpha_values = np.array(alpha_values)
     beta_values = np.array(beta_values)
@@ -293,8 +332,8 @@ def create_profit_gain_heatmap(base_dir, player_num=1, figsize=(10, 8)):
         j = np.where(unique_betas == beta)[0][0]
         profit_gain_grid[i, j] = gain
     
-    # Create figure
-    plt.figure(figsize=figsize)
+    if figsize is not None:
+        plt.figure(figsize=figsize)
     
     # Create heatmap
     im = plt.imshow(profit_gain_grid, 
@@ -304,40 +343,9 @@ def create_profit_gain_heatmap(base_dir, player_num=1, figsize=(10, 8)):
                           min(unique_alphas), max(unique_alphas)],
                    cmap='Reds')
     
-    # Add colorbar
     plt.colorbar(im)
-    
-    # Set labels
     plt.xlabel(r'$\beta \times 10^5$')
     plt.ylabel(r'$\alpha$')
-    
-    # Add title
     plt.title(f'Mean Profit Gain - Player {player_num}')
     
-    # Adjust layout
-    plt.tight_layout()
-    
     return plt.gcf()
-
-def plot_all_players_heatmaps(base_dir, num_players):
-    """
-    Creates heatmaps for all players' profit gains.
-    
-    Parameters:
-    -----------
-    base_dir : str
-        Base directory containing experiment results
-    num_players : int
-        Number of players in the game
-    """
-    fig, axes = plt.subplots(1, num_players, figsize=(6*num_players, 5))
-    if num_players == 1:
-        axes = [axes]
-    
-    for i in range(num_players):
-        plt.sca(axes[i])
-        create_profit_gain_heatmap(base_dir, i+1, figsize=None)
-        axes[i].set_title(f'Player {i+1}')
-    
-    plt.tight_layout()
-    return fig
