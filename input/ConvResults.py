@@ -6,6 +6,9 @@ from input.qlearning import simulate_game, run_sessions, detect_cycle
 import matplotlib.pyplot as plt
 import os
 from glob import glob
+import multiprocessing as mp
+from functools import partial
+import copy
 
 class ExperimentSaver:
     def __init__(self, experiment_name):
@@ -167,6 +170,8 @@ def run_experiment(game, alpha_values, beta_values, num_sessions=1000, experimen
         Array of beta values to test
     num_sessions : int
         Number of sessions per experiment
+    num_processes : int, optional
+        Number of processes to use. If None, uses CPU count - 1
     """
     
     for i, alpha in enumerate(alpha_values):
@@ -189,6 +194,7 @@ def run_experiment(game, alpha_values, beta_values, num_sessions=1000, experimen
             game.cycle_profits = np.zeros((game.n, game.num_periods, game.num_sessions), dtype=float)
             game.index_strategies = np.zeros((game.n,) + game.sdim + (game.num_sessions,), dtype=int)
             game.last_observed_prices = np.zeros((game.n, game.memory), dtype=int)  # last prices
+
 
             # Run all sessions for this alpha-beta combination
             for iSession in range(game.num_sessions):
@@ -214,7 +220,7 @@ def run_experiment(game, alpha_values, beta_values, num_sessions=1000, experimen
 
                 # If converged, analyze post-convergence cycles
                 if converged:
-                    cycle_length, visited_states, visited_profits, price_history = detect_cycle(game,game.index_strategies[:, iSession], iSession)
+                    cycle_length, visited_states, visited_profits, price_history = detect_cycle(game, iSession)
                     if game.aprint:
                         print('cycle length:', cycle_length)
                         print('visited_states:', visited_states)
@@ -365,3 +371,144 @@ def _create_heatmap(alpha_values, beta_values, profit_gains, player_num, figsize
     plt.title(f'Mean Profit Gain - Player {player_num}')
     
     return plt.gcf()
+
+
+###############################
+
+## Parallel Computing Section
+
+def run_single_session(game, iSession):
+    """
+    Run a single session of the game
+    
+    Parameters:
+    -----------
+    game : object
+        Game instance
+    iSession : int
+        Session number
+    
+    Returns:
+    --------
+    dict : Session results
+    """
+    # Create a deep copy of game to avoid shared state issues
+    game_copy = copy.deepcopy(game)
+    
+    # Initialize session-specific variables
+    game_copy.Q = game_copy.init_Q()
+    game_copy.last_observed_prices = np.zeros((game_copy.n, game_copy.memory), dtype=int)
+
+    # Run simulation
+    game_copy, converged, t_convergence = simulate_game(game_copy)
+
+    # Store convergence results in game_copy
+    game_copy.converged[iSession] = converged
+    game_copy.time_to_convergence[iSession] = t_convergence
+    
+    # Store last observed prices in game_copy
+    game_copy.index_last_state[:, :, iSession] = game_copy.last_observed_prices
+    
+    # Store the learned strategies in game_copy
+    game_copy.index_strategies[..., iSession] = game_copy.Q.argmax(axis=-1)
+
+    # If converged, get cycle data
+    cycle_data = None
+    if converged:
+        # Pass iSession to detect_cycle function
+        cycle_length, visited_states, visited_profits, price_history = detect_cycle(game_copy, iSession)  # Now passing iSession
+        cycle_data = {
+            'cycle_length': cycle_length,
+            'visited_states': visited_states,
+            'visited_profits': visited_profits,
+            'price_history': price_history
+        }
+    
+    
+    # Return results
+    return {
+        'session_id': iSession,
+        'converged': converged,
+        'time_to_convergence': t_convergence,
+        'last_observed_prices': game_copy.last_observed_prices,
+        'optimal_strategies': game_copy.Q.argmax(axis=-1),
+        'cycle_data': cycle_data
+    }
+
+
+def run_experiment_parallel(game, alpha_values, beta_values, num_sessions=1000, experiment_name='test', num_processes=None):
+    """
+    Run experiments with different alpha and beta values using parallel processing
+    """
+    if num_processes is None:
+        num_processes = max(1, mp.cpu_count() - 2)
+        print('num_process', num_processes)
+
+    # Run sessions in parallel with error handling
+    print(f"Starting parallel processing with {num_processes} processes for {num_sessions} sessions")
+    
+    for i, alpha in enumerate(alpha_values):
+        for j, beta in enumerate(beta_values):
+            # Update game parameters
+            game.alpha = alpha
+            game.beta = beta
+            game.num_sessions = num_sessions
+            
+            # Initialize arrays for results
+            game.converged = np.zeros(game.num_sessions, dtype=bool)
+            game.time_to_convergence = np.zeros(game.num_sessions, dtype=float)
+            game.index_last_state = np.zeros((game.n, game.memory, game.num_sessions), dtype=int)
+            game.cycle_length = np.zeros(game.num_sessions, dtype=int)
+            game.cycle_states = np.zeros((game.num_periods, game.num_sessions), dtype=int)
+            game.cycle_prices = np.zeros((game.n, game.num_periods, game.num_sessions), dtype=float)
+            game.cycle_profits = np.zeros((game.n, game.num_periods, game.num_sessions), dtype=float)
+            game.index_strategies = np.zeros((game.n,) + game.sdim + (game.num_sessions,), dtype=int)
+
+            #if game.aprint:
+            print(f"\nStarting alpha={alpha}, beta={beta} with {num_processes} processes")
+            
+            try:
+
+                # Run sessions in parallel with error handling
+                with mp.Pool(processes=num_processes) as pool:
+                    session_results = []
+                    for iSession in range(num_sessions):
+                        result = pool.apply_async(run_single_session, args=(game, iSession))
+                        session_results.append(result)
+                    
+                    # Collect results with timeout
+                    results = [res.get(timeout=300) for res in session_results]
+                
+
+                # Process results
+                for result in results:
+                    
+                    iSession = result['session_id']
+                    game.converged[iSession] = result['converged']
+                    game.time_to_convergence[iSession] = result['time_to_convergence']
+                    game.index_last_state[:, :, iSession] = result['last_observed_prices']
+                    game.index_strategies[..., iSession] = result['optimal_strategies']
+
+            
+                    
+                    if result['cycle_data'] is not None:
+                        cycle_data = result['cycle_data']
+                        game.cycle_length[iSession] = cycle_data['cycle_length']
+                        cycle_len = cycle_data['cycle_length']
+                        game.cycle_states[:cycle_len, iSession] = cycle_data['visited_states']
+                        game.cycle_prices[:, :cycle_len, iSession] = cycle_data['price_history']
+                        game.cycle_profits[:, :cycle_len, iSession] = cycle_data['visited_profits']
+                
+                # Save results for this alpha-beta combination
+                run_dir = save_experiment(game, experiment_name, alpha, beta)
+                
+                if game.aprint:
+                    print(f"Completed alpha={alpha}, beta={beta}")
+                    print(f"Results saved in {run_dir}")
+                    
+            except Exception as e:
+                print(f"Error processing alpha={alpha}, beta={beta}: {str(e)}")
+                continue
+
+    print("\nAll experiments completed.")
+    return game

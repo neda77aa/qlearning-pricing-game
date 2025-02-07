@@ -142,7 +142,7 @@ def run_sessions(game):
         # If converged, analyze post-convergence cycles
         if converged:
             # During session simulation
-            cycle_length, visited_states, visited_profits, price_history = detect_cycle(game, game.index_strategies[:, iSession],iSession)
+            cycle_length, visited_states, visited_profits, price_history = detect_cycle(game, iSession)
             # You can then use these results to compute aggregate statistics
             avg_profits = np.mean(visited_profits, axis=0)
             print('cycle length',cycle_length)
@@ -157,7 +157,7 @@ def run_sessions(game):
     return game
 
 
-def detect_cycle(game, optimal_strategy, session_idx):
+def detect_cycle(game, session_idx):
     """
     Detects cycles in the game states and computes related metrics.
     Updates game parameters with cycle information.
