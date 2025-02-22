@@ -28,6 +28,37 @@ def generate_init_state(game):
     return init_state
 
 
+def compute_reference_price(game, last_reference_observed_prices, last_observed_demand):
+    """
+    Computes the reference price as a single value by averaging past observed prices across firms
+    and weighting them by their demand shares.
+
+    Parameters:
+    -----------
+    game : object
+        The game instance containing observed prices and demands.
+
+    Returns:
+    --------
+    ref_price : int
+        The computed reference price (rounded to the nearest discrete price index).
+    """
+    # Element-wise multiplication of past prices and past demands
+    weighted_prices = last_reference_observed_prices * last_observed_demand  # Shape: (n, reference_memory)
+
+    # Sum across firms (axis=0) to get total market-weighted prices for each past period
+    total_weighted_prices = np.sum(weighted_prices, axis=0)  # Shape: (reference_memory,)
+
+    # Compute the average over reference_memory periods
+    ref_price_continuous = np.mean(total_weighted_prices)  # Single scalar value
+
+    # Round to the nearest valid price index (ensuring it stays within [0, game.k-1])
+    ref_price_index = int(np.clip(round(ref_price_continuous), 0, game.k - 1))
+
+    return ref_price_index
+
+
+
 
 def pick_strategies(game, s, t):
     """Pick strategies by exploration vs exploitation"""
@@ -79,7 +110,16 @@ def simulate_game(game):
     s = generate_init_state(game)
 
     # Initialize last observed prices 
-    game.last_observed_prices = np.reshape(s, (game.n, game.memory))
+    game.last_observed_prices = np.reshape(s[:game.n * game.memory], (game.n, game.memory)).copy()  
+
+    if game.demand_type == 'reference':
+        # **Initialize reference price tracking**
+        initial_price = s[:game.n].reshape(game.n, 1)  # Extract initial prices
+        game.last_reference_observed_prices = np.tile(initial_price, (1, game.reference_memory))  # Fill all reference slots
+
+        # **Initialize observed demands (equal share assumption)**
+        game.last_observed_demand[:, :] = 1 / game.n  # Set initial demands as equal weights
+
 
     #s = game.s0
     stable = 0
@@ -87,14 +127,29 @@ def simulate_game(game):
     # Iterate until convergence
     for t in range(int(game.tmax)):
         a = pick_strategies(game, s, t)
-        pi = game.PI[tuple(a)]
+        if game.demand_type == 'noreference':
+            pi = game.PI[tuple(a)]
+        if game.demand_type == 'reference':
+            pi = game.PI[tuple(np.append(a, s[-1]))]
 
         # **Update Last Observed Prices**
         game.last_observed_prices[:, 1:] = game.last_observed_prices[:, :-1]  # Shift old prices
         game.last_observed_prices[:, 0] = a  # Insert new prices at first position
+        
+        if game.demand_type == 'reference':
+            game.last_reference_observed_prices[:, 1:] = game.last_reference_observed_prices[:, :-1]  # Shift old prices
+            game.last_reference_observed_prices[:, 0] = a  # Insert new prices at first position
+            game.last_observed_demand[:, 1:] = game.last_observed_demand[:, :-1]
+            p = np.asarray(game.A[np.asarray(a)])
+            game.last_observed_demand[:, 0] = game.demand(p)
+            game.last_observed_reference = compute_reference_price(game, game.last_reference_observed_prices, game.last_observed_demand)
+
 
         # **Update State**
-        sprime = game.last_observed_prices.flatten()  # Flatten to match state shape
+        if game.demand_type == 'noreference':
+            sprime = game.last_observed_prices.flatten()   # Flatten to match state shape
+        if game.demand_type == 'reference':
+            sprime = np.append(game.last_observed_prices.flatten(), game.last_observed_reference)
         #sprime = a
         game.Q, stable = update_q(game, s, a, sprime, pi, stable) # Q-learning update
         s = sprime
@@ -126,6 +181,10 @@ def run_sessions(game):
         game.Q = game.init_Q()  # Reset Q-values
         game.last_observed_prices = np.zeros((game.n, game.memory), dtype=int)  # Reset prices
 
+        if game.demand_type == 'reference':
+            game.last_reference_observed_prices = np.zeros((game.n, game.reference_memory), dtype=int)  # last prices
+            game.last_observed_demand = np.zeros((game.n, game.reference_memory), dtype=float)  # last shares for each firm
+
         # Run Q-learning for this session
         game, converged, t_convergence = simulate_game(game)
 
@@ -139,6 +198,9 @@ def run_sessions(game):
         # Store the learned strategies (optimal strategies at convergence)
         game.index_strategies[..., iSession] = game.Q.argmax(axis=-1)
 
+        if game.demand_type == 'reference':
+            game.index_last_reference[:, iSession] = game.last_observed_reference
+
         # If converged, analyze post-convergence cycles
         if converged:
             # During session simulation
@@ -149,7 +211,6 @@ def run_sessions(game):
             print('visited_states',visited_states)
             print('visited_profits',visited_profits)
             print('price_history',price_history)
-
 
         #post_convergence_analysis(game)
 
@@ -183,28 +244,63 @@ def detect_cycle(game, session_idx):
     visited_states = np.zeros(game.num_periods, dtype=int)
     visited_profits = np.zeros((game.n, game.num_periods))
     price_history = np.zeros((game.n, game.num_periods), dtype=int)
+    reference_price_history = np.zeros((1, game.num_periods), dtype=int)
     
-    # Initialize with last observed prices
-    p = np.copy(game.last_observed_prices)  # Shape: (n, memory)
+    if game.demand_type == 'noreference':
+        # Initialize with last observed prices
+        p = np.copy(game.last_observed_prices)  # Shape: (n, memory)
+
+        # Get initial optimal actions from current state
+        p_prime = game.index_strategies[:, *p.flatten(), session_idx]
+        old_argmax = np.argmax(game.Q[:, *p], axis=-1)
     
-    # Get initial optimal actions from current state
-    p_prime = game.index_strategies[:, *p.flatten(), session_idx]
-    old_argmax = np.argmax(game.Q[:, *p], axis=-1)
+    if game.demand_type == 'reference':
+        # Initialize with last observed prices
+        p = np.copy(game.last_observed_prices)  # Shape: (n, memory)
+        r = np.copy(game.last_observed_reference)
+        s = np.append(p.flatten(), r)
+        # Get initial optimal actions from current state
+        p_prime = game.index_strategies[:, *s, session_idx]
+        d = np.copy(game.last_observed_demand)
+        
+    
     
     # Main loop for detecting cycles
     for i_period in range(game.num_periods):
-        # Update price history
-        if game.memory > 1:
-            p[:, 1:] = p[:, :-1]  # Shift older prices up
-        p[:, 0] = p_prime  # Update most recent prices
-        price_history[:, i_period] = p_prime
 
-        # Record current state
-        visited_states[i_period] = compute_state_number(game, p)
+        if game.demand_type == 'noreference':
+            # Update price history
+            if game.memory > 1:
+                p[:, 1:] = p[:, :-1]  # Shift older prices up
+            p[:, 0] = p_prime  # Update most recent prices
+
         
-        # Compute and record profits
-        visited_profits[:, i_period] = game.PI[tuple(p_prime)]
+        if game.demand_type == 'reference':
+            # Update price history
+            if game.memory > 1:
+                p[:, 1:] = p[:, :-1]  # Shift older prices up
+                d[:, 1:] = d[:, :-1]  # Shift older demands up
+
+            p[:, 0] = p_prime  # Update most recent prices
+            d[:, 0] = game.demand(np.asarray(game.A[np.asarray(p_prime)]),r) 
+
+            r = int(np.clip(round(np.sum(p_prime * d[:, 0])), 0, game.k - 1))
+
+        price_history[:, i_period] = p_prime
         
+        if game.demand_type == 'noreference':
+            # Record current state
+            visited_states[i_period] = compute_state_number(game, p, 1)
+            # Compute and record profits
+            visited_profits[:, i_period] = game.PI[tuple(p_prime)]
+
+        if game.demand_type == 'reference':
+            reference_price_history[:, i_period] = r
+            # Record current state
+            visited_states[i_period] = compute_state_number(game, p, r)
+            # Compute and record profits
+            visited_profits[:, i_period] = game.PI[tuple(np.append(p_prime, r))]
+
         # Check if we've seen this state before (cycle detection)
         if i_period >= 1:
             for prev_period in range(i_period):
@@ -223,6 +319,10 @@ def detect_cycle(game, session_idx):
                     
                     # Update cycle states (pad with zeros if needed)
                     game.cycle_states[:len(visited_states), session_idx] = visited_states
+
+                    if game.demand_type == 'reference':
+                        reference_price_history = reference_price_history[:, cycle_start:i_period + 1]
+                        game.cycle_reference_prices[0, :cycle_length, session_idx] = reference_price_history
                     
                     # Update cycle prices
                     for i in range(game.n):
@@ -233,9 +333,15 @@ def detect_cycle(game, session_idx):
                         game.cycle_profits[i, :cycle_length, session_idx] = visited_profits[i, :cycle_length]
                     
                     return cycle_length, visited_states, visited_profits, price_history
-        
-        # Update p_prime for next iteration
-        p_prime = game.index_strategies[:, *p.flatten(), session_idx]
+                
+        if game.demand_type == 'noreference':
+            # Update p_prime for next iteration
+            p_prime = game.index_strategies[:, *p.flatten(), session_idx]
+
+        if game.demand_type == 'reference':
+            s = np.append(p.flatten(), r)
+            # Get initial optimal actions from current state
+            p_prime = game.index_strategies[:, *s, session_idx]
     
     # If no cycle found, update game parameters with full period data
     game.cycle_length[session_idx] = game.num_periods
@@ -248,7 +354,7 @@ def detect_cycle(game, session_idx):
     return game.num_periods, visited_states, visited_profits, price_history
 
 
-def compute_state_number(game, prices):
+def compute_state_number(game, prices, reference_price):
     """
     Compute the state number from a price configuration.
     
@@ -271,5 +377,9 @@ def compute_state_number(game, prices):
     for i in range(len(flat_prices)):
         state += flat_prices[i] * multiplier
         multiplier *= game.k
+
+    # Add reference price to the state encoding
+    state += reference_price * multiplier  # Scale by previous multiplier
+
     
     return state

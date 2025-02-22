@@ -80,12 +80,19 @@ class ExperimentSaver:
             player_num = i_player + 1
             prices_list = []
             profits_list = []
-            
+            reference_prices_list = []
+
             # Extract prices and profits only up to cycle length for each session
             for i_session in range(game.num_sessions):
                 cycle_len = game.cycle_length[i_session]
                 prices = game.cycle_prices[i_player, :cycle_len, i_session]
                 profits = game.cycle_profits[i_player, :cycle_len, i_session]
+
+                # If reference pricing is enabled, store reference prices
+                if game.demand_type == 'reference':
+                    reference_prices = game.cycle_reference_prices[0, :cycle_len, i_session]  # Extract ref prices
+                    reference_prices_str = ','.join([f"{r:.5g}" for r in reference_prices])  # Format as string
+                    reference_prices_list.append(reference_prices_str)
                 
                 # Convert arrays to strings with comma separation, formatting to 5 digits
                 prices_str = ','.join([f"{p:.5g}" for p in prices])
@@ -96,7 +103,11 @@ class ExperimentSaver:
             
             session_summaries[f'cycle_prices_p{player_num}'] = prices_list
             session_summaries[f'cycle_profits_p{player_num}'] = profits_list
-        
+
+            # Add reference prices if reference demand is used
+            if game.demand_type == 'reference':
+                session_summaries[f'cycle_reference_prices_p{player_num}'] = reference_prices_list
+            
         df_summaries = pd.DataFrame(session_summaries)
         df_summaries.to_csv(os.path.join(run_dir, "session_summaries.csv"), index=False)
         
@@ -106,7 +117,8 @@ class ExperimentSaver:
             cycle_states=game.cycle_states,
             cycle_prices=game.cycle_prices,
             cycle_profits=game.cycle_profits,
-            index_strategies=game.index_strategies
+            index_strategies=game.index_strategies,
+            cycle_reference_prices=game.cycle_reference_prices  # Include reference prices in saved file
         )
 
     def save_cycle_statistics(self, game, run_dir):
@@ -116,13 +128,32 @@ class ExperimentSaver:
         # Calculate mean profits only up to cycle length for each session
         mean_profits = np.zeros((game.n, game.num_sessions))
         profit_gains = np.zeros((game.n, game.num_sessions))
+        mean_prices = np.zeros((game.n, game.num_sessions))
+
+        # If using reference pricing, store reference price statistics
+        if game.demand_type == 'reference':
+            mean_reference_prices = np.zeros(game.num_sessions)
+            std_reference_prices = np.zeros(game.num_sessions)
         
         for i_session in range(game.num_sessions):
             cycle_len = game.cycle_length[i_session]
             for i_player in range(game.n):
                 mean_profits[i_player, i_session] = np.mean(game.cycle_profits[i_player, :cycle_len, i_session])
                 profit_gains[i_player, i_session] = (mean_profits[i_player, i_session] - game.NashProfits[i_player]) / (game.CoopProfits[i_player] - game.NashProfits[i_player])
+                # Convert price indexes to actual price values
+                actual_prices = np.asarray(game.A[np.asarray(game.cycle_prices[i_player, :cycle_len, i_session], dtype=int)])
+                mean_prices[i_player, i_session] = np.mean(actual_prices)
+
+            # Compute reference price statistics
+            if game.demand_type == 'reference':
+                reference_prices = np.asarray(game.A[np.asarray(game.cycle_reference_prices[0, :cycle_len, i_session], dtype=int)]) # Extract reference prices
+                mean_reference_prices[i_session] = np.mean(reference_prices)
+                std_reference_prices[i_session] = np.std(reference_prices)
+
+                # Convert reference prices to string format and store
+                ref_prices_str = ','.join([f"{p:.5g}" for p in reference_prices])
         
+
         # Calculate statistics
         cycle_stats = {
             'mean_cycle_length': f"{np.mean(game.cycle_length):.5g}",
@@ -138,7 +169,15 @@ class ExperimentSaver:
                 f'mean_profit_p{player_num}': f"{np.mean(mean_profits[i_player]):.5g}",
                 f'std_profit_p{player_num}': f"{np.std(mean_profits[i_player]):.5g}",
                 f'mean_profit_gain_p{player_num}': f"{np.mean(profit_gains[i_player]):.5g}",
-                f'std_profit_gain_p{player_num}': f"{np.std(profit_gains[i_player]):.5g}"
+                f'std_profit_gain_p{player_num}': f"{np.std(profit_gains[i_player]):.5g}",
+                f'mean_price_p{player_num}': f"{np.mean(mean_prices[i_player]):.5g}"
+            })
+        
+        # Add reference price statistics if applicable
+        if game.demand_type == 'reference':
+            cycle_stats.update({
+                'mean_reference_price': f"{np.mean(mean_reference_prices):.5g}",
+                'std_reference_price': f"{np.std(mean_reference_prices):.5g}"
             })
 
         df_stats = pd.DataFrame([cycle_stats])
@@ -156,7 +195,7 @@ def save_experiment(game, experiment_name, alpha, beta):
     
     return run_dir
 
-def run_experiment(game, alpha_values, beta_values, num_sessions=1000, experiment_name = 'test'):
+def run_experiment(game, alpha_values, beta_values, num_sessions=1000, demand_type = 'noreference', experiment_name = 'test'):
     """
     Run experiments with different alpha and beta values
     
@@ -183,6 +222,7 @@ def run_experiment(game, alpha_values, beta_values, num_sessions=1000, experimen
             game.alpha = alpha
             game.beta = beta
             game.num_sessions = num_sessions
+            game.demand_type = demand_type
             
             # Reset and initialize game arrays for the new experiment
             game.converged = np.zeros(game.num_sessions, dtype=bool)
@@ -194,6 +234,9 @@ def run_experiment(game, alpha_values, beta_values, num_sessions=1000, experimen
             game.cycle_profits = np.zeros((game.n, game.num_periods, game.num_sessions), dtype=float)
             game.index_strategies = np.zeros((game.n,) + game.sdim + (game.num_sessions,), dtype=int)
             game.last_observed_prices = np.zeros((game.n, game.memory), dtype=int)  # last prices
+            game.last_observed_reference = np.zeros(1, dtype=int)  # last prices
+            game.last_reference_observed_prices = np.zeros((game.n, game.reference_memory), dtype=int)  # last prices
+            game.last_observed_demand = np.zeros((game.n, game.reference_memory), dtype=float)  # last shares for each firm
 
 
             # Run all sessions for this alpha-beta combination
@@ -204,6 +247,11 @@ def run_experiment(game, alpha_values, beta_values, num_sessions=1000, experimen
 
                 game.Q = game.init_Q()  # Reset Q-values
                 game.last_observed_prices = np.zeros((game.n, game.memory), dtype=int)  # Reset prices
+
+                if game.demand_type == 'reference':
+                    game.last_reference_observed_prices = np.zeros((game.n, game.reference_memory), dtype=int)  # last prices
+                    game.last_observed_demand = np.zeros((game.n, game.reference_memory), dtype=float)  # last shares for each firm
+
 
                 # Run Q-learning for this session
                 game, converged, t_convergence = simulate_game(game)
@@ -217,6 +265,10 @@ def run_experiment(game, alpha_values, beta_values, num_sessions=1000, experimen
 
                 # Store the learned strategies (optimal strategies at convergence)
                 game.index_strategies[..., iSession] = game.Q.argmax(axis=-1)
+
+                if game.demand_type == 'reference':
+                    game.index_last_reference[:, iSession] = game.last_observed_reference
+
 
                 # If converged, analyze post-convergence cycles
                 if converged:
@@ -239,7 +291,7 @@ def run_experiment(game, alpha_values, beta_values, num_sessions=1000, experimen
 
 
 
-def create_profit_gain_heatmap(results_dir, player_num=1, experiment_name="*", figsize=(10, 8)):
+def create_profit_gain_heatmap(results_dir, player_num=1, experiment_name="*", metric_name="Profit Gain",figsize=(10, 8)):
     """
     Creates a heatmap of mean profit gains for a specific player across different alpha and beta values.
     
@@ -275,7 +327,7 @@ def create_profit_gain_heatmap(results_dir, player_num=1, experiment_name="*", f
     # Extract alpha and beta values from directory names
     alpha_values = []
     beta_values = []
-    profit_gains = []
+    metric_values = []
     
     for run_dir in run_dirs:
         try:
@@ -292,11 +344,11 @@ def create_profit_gain_heatmap(results_dir, player_num=1, experiment_name="*", f
             stats_file = os.path.join(run_dir, "cycle_statistics.csv")
             if os.path.exists(stats_file):
                 df = pd.read_csv(stats_file)
-                profit_gain = float(df[f'mean_profit_gain_p{player_num}'].iloc[0])
+                metric_value = float(df[f'mean_{metric_name.lower().replace(" ", "_")}_p{player_num}'].iloc[0])
                 
                 alpha_values.append(alpha)
                 beta_values.append(beta)
-                profit_gains.append(profit_gain)
+                metric_values.append(metric_value)
                 
         except (IndexError, ValueError) as e:
             print(f"Skipping directory {dir_name} due to parsing error: {e}")
@@ -307,69 +359,71 @@ def create_profit_gain_heatmap(results_dir, player_num=1, experiment_name="*", f
     
     
     # Create and return the heatmap
-    return _create_heatmap(alpha_values, beta_values, profit_gains, player_num, figsize)
-
-def plot_all_players_heatmaps(results_dir, num_players, experiment_name="*"):
-    """
-    Creates heatmaps for all players' profit gains.
-    
-    Parameters:
-    -----------
-    results_dir : str
-        Directory containing experiment results
-    num_players : int
-        Number of players in the game
-    experiment_name : str
-        Pattern to match specific experiments
-    """
-    fig, axes = plt.subplots(1, num_players, figsize=(6*num_players, 5))
-    if num_players == 1:
-        axes = [axes]
-    
-    for i in range(num_players):
-        plt.sca(axes[i])
-        create_profit_gain_heatmap(results_dir, i+1, experiment_name, figsize=None)
-        axes[i].set_title(f'Player {i+1}')
-    
-    plt.tight_layout()
+    fig = _create_heatmap(alpha_values, beta_values, metric_values, player_num, metric_name, figsize)
     return fig
 
-def _create_heatmap(alpha_values, beta_values, profit_gains, player_num, figsize):
-    """Helper function to create the actual heatmap"""
-    # Convert to numpy arrays
+
+def _create_heatmap(alpha_values, beta_values, data_values, player_num, metric_name, figsize):
+    """
+    Helper function to create heatmaps for different metrics (Profit Gain or Mean Price).
+
+    Parameters:
+    -----------
+    alpha_values : list
+        List of alpha values
+    beta_values : list
+        List of beta values
+    data_values : list
+        Corresponding values for the heatmap
+    player_num : int
+        Player number being plotted
+    metric_name : str
+        Title of the heatmap (e.g., "Profit Gain", "Mean Price")
+    figsize : tuple
+        Size of the figure
+    """
+
+    # Convert inputs to numpy arrays
     alpha_values = np.array(alpha_values)
     beta_values = np.array(beta_values)
-    profit_gains = np.array(profit_gains)
-    
-    # Get unique values for grid
+    data_values = np.array(data_values)
+
+    # Get unique values for the grid
     unique_alphas = np.sort(np.unique(alpha_values))
     unique_betas = np.sort(np.unique(beta_values))
-    
-    # Create grid
-    profit_gain_grid = np.zeros((len(unique_alphas), len(unique_betas)))
-    
-    # Fill grid
-    for alpha, beta, gain in zip(alpha_values, beta_values, profit_gains):
-        i = np.where(unique_alphas == alpha)[0][0]
-        j = np.where(unique_betas == beta)[0][0]
-        profit_gain_grid[i, j] = gain
-    
+
+    # Create grid for the heatmap
+    data_grid = np.zeros((len(unique_alphas), len(unique_betas)))
+
+    # Fill grid with values
+    for alpha, beta, value in zip(alpha_values, beta_values, data_values):
+        i = np.where(unique_alphas == alpha)[0][0]  # Find row index
+        j = np.where(unique_betas == beta)[0][0]  # Find column index
+        data_grid[i, j] = value
+
     if figsize is not None:
         plt.figure(figsize=figsize)
-    
-    # Create heatmap
-    im = plt.imshow(profit_gain_grid, 
-                   aspect='auto',
-                   origin='lower',
-                   extent=[min(unique_betas), max(unique_betas), 
-                          min(unique_alphas), max(unique_alphas)],
-                   cmap='Reds')
-    
-    plt.colorbar(im)
+
+    # Set colormap based on metric
+    cmap_choice = 'Reds' if "Profit Gain" in metric_name else 'Blues'
+
+    # Create the heatmap
+    im = plt.imshow(
+        data_grid, 
+        aspect='auto',
+        origin='lower',
+        extent=[min(unique_betas), max(unique_betas), min(unique_alphas), max(unique_alphas)],
+        cmap=cmap_choice
+    )
+
+    # Add color bar
+    plt.colorbar(im, label=metric_name)
+
+    # Set labels and title
     plt.xlabel(r'$\beta \times 10^5$')
     plt.ylabel(r'$\alpha$')
-    plt.title(f'Mean Profit Gain - Player {player_num}')
-    
+    plt.title(f'{metric_name} - Player {player_num}')
+
     return plt.gcf()
 
 
@@ -463,12 +517,15 @@ def run_experiment_parallel(game, alpha_values, beta_values, num_sessions=1000, 
             game.cycle_prices = np.zeros((game.n, game.num_periods, game.num_sessions), dtype=float)
             game.cycle_profits = np.zeros((game.n, game.num_periods, game.num_sessions), dtype=float)
             game.index_strategies = np.zeros((game.n,) + game.sdim + (game.num_sessions,), dtype=int)
+            game.last_observed_reference = np.zeros(1, dtype=int)  # last prices
+            game.last_reference_observed_prices = np.zeros((game.n, game.reference_memory), dtype=int)  # last prices
+            game.last_observed_demand = np.zeros((game.n, game.reference_memory), dtype=float)  # last shares for each firm
+
 
             #if game.aprint:
             print(f"\nStarting alpha={alpha}, beta={beta} with {num_processes} processes")
             
             try:
-
                 # Run sessions in parallel with error handling
                 with mp.Pool(processes=num_processes) as pool:
                     session_results = []
