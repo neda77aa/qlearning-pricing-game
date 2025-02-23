@@ -104,10 +104,10 @@ class ExperimentSaver:
             session_summaries[f'cycle_prices_p{player_num}'] = prices_list
             session_summaries[f'cycle_profits_p{player_num}'] = profits_list
 
-            # Add reference prices if reference demand is used
-            if game.demand_type == 'reference':
-                session_summaries[f'cycle_reference_prices_p{player_num}'] = reference_prices_list
-            
+        # Add reference prices if reference demand is used
+        if game.demand_type == 'reference':
+            session_summaries[f'cycle_reference_prices_p'] = reference_prices_list
+        
         df_summaries = pd.DataFrame(session_summaries)
         df_summaries.to_csv(os.path.join(run_dir, "session_summaries.csv"), index=False)
         
@@ -156,28 +156,28 @@ class ExperimentSaver:
 
         # Calculate statistics
         cycle_stats = {
-            'mean_cycle_length': f"{np.mean(game.cycle_length):.5g}",
-            'std_cycle_length': f"{np.std(game.cycle_length):.5g}",
-            'convergence_rate': f"{np.mean(game.converged):.5g}",
-            'mean_convergence_time': f"{np.mean(game.time_to_convergence):.5g}"
+            'mean_cycle_length': f"{np.nanmean(game.cycle_length):.5g}",
+            'std_cycle_length': f"{np.nanstd(game.cycle_length):.5g}",
+            'convergence_rate': f"{np.nanmean(game.converged):.5g}",
+            'mean_convergence_time': f"{np.nanmean(game.time_to_convergence):.5g}"
         }
         
         # Add statistics for each player
         for i_player in range(game.n):
             player_num = i_player + 1
             cycle_stats.update({
-                f'mean_profit_p{player_num}': f"{np.mean(mean_profits[i_player]):.5g}",
-                f'std_profit_p{player_num}': f"{np.std(mean_profits[i_player]):.5g}",
-                f'mean_profit_gain_p{player_num}': f"{np.mean(profit_gains[i_player]):.5g}",
-                f'std_profit_gain_p{player_num}': f"{np.std(profit_gains[i_player]):.5g}",
-                f'mean_price_p{player_num}': f"{np.mean(mean_prices[i_player]):.5g}"
+                f'mean_profit_p{player_num}': f"{np.nanmean(mean_profits[i_player]):.5g}",
+                f'std_profit_p{player_num}': f"{np.nanstd(mean_profits[i_player]):.5g}",
+                f'mean_profit_gain_p{player_num}': f"{np.nanmean(profit_gains[i_player]):.5g}",
+                f'std_profit_gain_p{player_num}': f"{np.nanstd(profit_gains[i_player]):.5g}",
+                f'mean_price_p{player_num}': f"{np.nanmean(mean_prices[i_player]):.5g}"
             })
         
         # Add reference price statistics if applicable
         if game.demand_type == 'reference':
             cycle_stats.update({
-                'mean_reference_price': f"{np.mean(mean_reference_prices):.5g}",
-                'std_reference_price': f"{np.std(mean_reference_prices):.5g}"
+                'mean_reference_price': f"{np.nanmean(mean_reference_prices):.5g}",
+                'std_reference_price': f"{np.nanstd(mean_reference_prices):.5g}"
             })
 
         df_stats = pd.DataFrame([cycle_stats])
@@ -237,6 +237,7 @@ def run_experiment(game, alpha_values, beta_values, num_sessions=1000, demand_ty
             game.last_observed_reference = np.zeros(1, dtype=int)  # last prices
             game.last_reference_observed_prices = np.zeros((game.n, game.reference_memory), dtype=int)  # last prices
             game.last_observed_demand = np.zeros((game.n, game.reference_memory), dtype=float)  # last shares for each firm
+            game.index_last_reference = np.zeros((game.num_sessions,), dtype=int)  # Store last reference price
 
 
             # Run all sessions for this alpha-beta combination
@@ -267,7 +268,7 @@ def run_experiment(game, alpha_values, beta_values, num_sessions=1000, demand_ty
                 game.index_strategies[..., iSession] = game.Q.argmax(axis=-1)
 
                 if game.demand_type == 'reference':
-                    game.index_last_reference[:, iSession] = game.last_observed_reference
+                    game.index_last_reference[iSession] = game.last_observed_reference
 
 
                 # If converged, analyze post-convergence cycles
@@ -453,6 +454,12 @@ def run_single_session(game, iSession):
     game_copy.Q = game_copy.init_Q()
     game_copy.last_observed_prices = np.zeros((game_copy.n, game_copy.memory), dtype=int)
 
+    if game_copy.demand_type == 'reference':
+        # Initialize reference-related variables
+        game_copy.last_observed_reference = np.zeros(1, dtype=int)  # Last reference price
+        game_copy.last_reference_observed_prices = np.zeros((game_copy.n, game_copy.reference_memory), dtype=int)
+        game_copy.last_observed_demand = np.zeros((game_copy.n, game_copy.reference_memory), dtype=float)
+
     # Run simulation
     game_copy, converged, t_convergence = simulate_game(game_copy)
 
@@ -466,6 +473,17 @@ def run_single_session(game, iSession):
     # Store the learned strategies in game_copy
     game_copy.index_strategies[..., iSession] = game_copy.Q.argmax(axis=-1)
 
+    # Store reference pricing data if applicable
+    last_reference_price = None
+    last_reference_prices = None
+    last_observed_demand = None
+
+    if game_copy.demand_type == 'reference':
+        last_reference_price = game_copy.last_observed_reference
+        last_reference_prices = game_copy.last_reference_observed_prices
+        last_observed_demand = game_copy.last_observed_demand
+
+
     # If converged, get cycle data
     cycle_data = None
     if converged:
@@ -476,6 +494,20 @@ def run_single_session(game, iSession):
             'visited_states': visited_states,
             'visited_profits': visited_profits,
             'price_history': price_history
+        }
+
+    if game_copy.demand_type == 'reference':
+        # Return results
+        return {
+            'session_id': iSession,
+            'converged': converged,
+            'time_to_convergence': t_convergence,
+            'last_observed_prices': game_copy.last_observed_prices,
+            'optimal_strategies': game_copy.Q.argmax(axis=-1),
+            'cycle_data': cycle_data,
+            'last_observed_reference': last_reference_price,
+            'last_reference_prices': last_reference_prices,
+            'last_observed_demand': last_observed_demand
         }
     
     
@@ -490,7 +522,7 @@ def run_single_session(game, iSession):
     }
 
 
-def run_experiment_parallel(game, alpha_values, beta_values, num_sessions=1000, experiment_name='test', num_processes=None):
+def run_experiment_parallel(game, alpha_values, beta_values, num_sessions=1000, experiment_name='test',  demand_type = 'noreference', num_processes=None):
     """
     Run experiments with different alpha and beta values using parallel processing
     """
@@ -507,6 +539,7 @@ def run_experiment_parallel(game, alpha_values, beta_values, num_sessions=1000, 
             game.alpha = alpha
             game.beta = beta
             game.num_sessions = num_sessions
+            game.demand_type = demand_type
             
             # Initialize arrays for results
             game.converged = np.zeros(game.num_sessions, dtype=bool)
@@ -521,6 +554,13 @@ def run_experiment_parallel(game, alpha_values, beta_values, num_sessions=1000, 
             game.last_reference_observed_prices = np.zeros((game.n, game.reference_memory), dtype=int)  # last prices
             game.last_observed_demand = np.zeros((game.n, game.reference_memory), dtype=float)  # last shares for each firm
 
+
+            # Initialize reference-related arrays if using reference pricing
+            if game.demand_type == 'reference':
+                game.last_observed_reference = np.zeros(1, dtype=int)  # Single last observed reference price
+                game.last_reference_observed_prices = np.zeros((game.n, game.reference_memory), dtype=int)  # Reference prices
+                game.last_observed_demand = np.zeros((game.n, game.reference_memory), dtype=float)  # Demand shares for reference price
+                game.index_last_reference = np.zeros((game.num_sessions,), dtype=int)  # Store last reference price
 
             #if game.aprint:
             print(f"\nStarting alpha={alpha}, beta={beta} with {num_processes} processes")
@@ -539,14 +579,16 @@ def run_experiment_parallel(game, alpha_values, beta_values, num_sessions=1000, 
 
                 # Process results
                 for result in results:
-                    
                     iSession = result['session_id']
                     game.converged[iSession] = result['converged']
                     game.time_to_convergence[iSession] = result['time_to_convergence']
                     game.index_last_state[:, :, iSession] = result['last_observed_prices']
                     game.index_strategies[..., iSession] = result['optimal_strategies']
 
-            
+                    # If using reference pricing, store reference-related results
+                    if game.demand_type == 'reference':
+                        game.index_last_reference[iSession] = result['last_observed_reference']
+
                     
                     if result['cycle_data'] is not None:
                         cycle_data = result['cycle_data']
@@ -555,7 +597,7 @@ def run_experiment_parallel(game, alpha_values, beta_values, num_sessions=1000, 
                         game.cycle_states[:cycle_len, iSession] = cycle_data['visited_states']
                         game.cycle_prices[:, :cycle_len, iSession] = cycle_data['price_history']
                         game.cycle_profits[:, :cycle_len, iSession] = cycle_data['visited_profits']
-                
+
                 # Save results for this alpha-beta combination
                 run_dir = save_experiment(game, experiment_name, alpha, beta)
                 

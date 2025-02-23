@@ -50,7 +50,7 @@ class model(object):
         self.extend = kwargs.get('extend', 0.1)
         self.k = kwargs.get('k', 15)
         self.memory = kwargs.get('memory', 1)
-        self.reference_memory = kwargs.get('reference_memory', 3)
+        self.reference_memory = kwargs.get('reference_memory', 1)
 
         # Get demand_type from kwargs, defaulting to 'noreference'
         valid_demand_types = {'reference', 'noreference'}  # Allowed values

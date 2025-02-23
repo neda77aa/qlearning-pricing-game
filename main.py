@@ -22,39 +22,44 @@ if __name__ == '__main__':
     freeze_support()
 
     ####
-    game = model(n=2, k = 15, memory = 1,alpha=0.01, beta = 2e-6,demand_type = 'reference', num_sessions = 2, aprint = True)
-    #game_equilibrium = simulate_game(game)
-    game_equilibrium = run_sessions(game)
+    # game = model(n=2, k = 15, memory = 1,alpha=0.03, beta = 5e-6,demand_type = 'reference', num_sessions = 2, aprint = True)
+    # #game_equilibrium = simulate_game(game)
+    # game_equilibrium = run_sessions(game)
 
 
     # Define parameter ranges to test
-    # alpha_values = np.linspace(0.0025, 0.01, 3)  # 10 values between 0.001 and 0.01
-    # beta_values = np.linspace(0.005/25000, 0.05/25000, 3)   # 10 values between 0.001 and 0.01
+    alpha_values = np.linspace(0.0025, 0.02, 2)  # 10 values between 0.001 and 0.01
+    beta_values = np.linspace(0.005/25000, 0.05/25000, 2)   # 10 values between 0.001 and 0.01
 
 
-    # experiment_name = "baseline_experiment_2,2_parallel"
-    # num_sessions = 2
-    # aprint = True
+    experiment_base_name = "reference_impact_experiment"
+    num_sessions = 2
+    aprint = False
 
-    # game = model(n=2, k = 15, memory = 1,alpha=0.0075, beta=0.01/25000, num_sessions = num_sessions, aprint = aprint, demand_type = 'noreference')
+    for i in range(4):
+        if i == 0:
+            demand_type = 'noreference'
+            experiment_name = experiment_base_name + demand_type
+        else: 
+            demand_type = 'reference'
+            experiment_name = experiment_base_name + demand_type + 'reference_memory_' + str(i)
 
-    # # Run experiments Single core
-    # game = run_experiment(game, alpha_values, beta_values, num_sessions= num_sessions, experiment_name = experiment_name, demand_type = 'noreference')
+        game = model(n=2, k = 15, memory = 1,alpha=0.0075, beta=0.01/25000, num_sessions = num_sessions, aprint = aprint, demand_type = demand_type, reference_memory = i)
 
-    # Or specify number of processes
-    #game = run_experiment_parallel(game, alpha_values, beta_values, num_sessions=num_sessions, experiment_name = experiment_name) #, num_processes=4)
+        # Run experiments Single core
+        #game = run_experiment(game, alpha_values, beta_values, num_sessions= num_sessions, experiment_name = experiment_name, demand_type = demand_type)
 
-    # Generate heatmaps
-    # fig_profit = create_profit_gain_heatmap("../Results/experiments", player_num=1, experiment_name=experiment_name, metric_name="Profit Gain")
-    # fig_price = create_profit_gain_heatmap("../Results/experiments", player_num=1, experiment_name=experiment_name, metric_name="Price")
+        # Or specify number of processes
+        game = run_experiment_parallel(game, alpha_values, beta_values, num_sessions=num_sessions, experiment_name = experiment_name, demand_type = demand_type, num_processes=5)
 
-    # # Create "Figures" directory
-    # figures_dir = os.path.join("../Results/experiments", experiment_name, "Figures")
-    # os.makedirs(figures_dir, exist_ok=True)
+        # Generate heatmaps
+        fig_profit = create_profit_gain_heatmap("../Results/experiments", player_num=1, experiment_name=experiment_name, metric_name="Profit Gain")
+        fig_price = create_profit_gain_heatmap("../Results/experiments", player_num=1, experiment_name=experiment_name, metric_name="Price")
 
-    # # Save figures
-    # fig_profit.savefig(os.path.join(figures_dir, "profit_gain_heatmap.png"))
-    # fig_price.savefig(os.path.join(figures_dir, "price_heatmap.png"))
+        # Create "Figures" directory
+        figures_dir = os.path.join("../Results/experiments", experiment_name, "Figures")
+        os.makedirs(figures_dir, exist_ok=True)
 
-    # # Show plots (optional)
-    # plt.show()
+        # Save figures
+        fig_profit.savefig(os.path.join(figures_dir, "profit_gain_heatmap.png"))
+        fig_price.savefig(os.path.join(figures_dir, "price_heatmap.png"))
