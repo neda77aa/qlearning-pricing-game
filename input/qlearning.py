@@ -28,7 +28,7 @@ def generate_init_state(game):
     return init_state
 
 
-def compute_reference_price(game, last_reference_observed_prices, last_observed_demand):
+def compute_reference_price(game, last_reference_price, last_reference_observed_prices, last_observed_demand):
     """
     Computes the reference price as a single value by averaging past observed prices across firms
     and weighting them by their demand shares.
@@ -47,13 +47,13 @@ def compute_reference_price(game, last_reference_observed_prices, last_observed_
     weighted_prices = last_reference_observed_prices * last_observed_demand  # Shape: (n, reference_memory)
 
     # Sum across firms (axis=0) to get total market-weighted prices for each past period
-    total_weighted_prices = np.sum(weighted_prices, axis=0)  # Shape: (reference_memory,)
+    total_weighted_prices = np.sum(weighted_prices, axis=0)/ np.sum(last_observed_demand, axis = 0)  # Shape: (reference_memory,)
 
     # Compute the average over reference_memory periods
-    ref_price_continuous = np.mean(total_weighted_prices)  # Single scalar value
+    ref_price_continuous = game.lambda_ *  last_reference_price + (1- game.lambda_) * np.mean(total_weighted_prices)  # Single scalar value
 
     # Round to the nearest valid price index (ensuring it stays within [0, game.k-1])
-    ref_price_index = int(np.clip(round(ref_price_continuous), 0, game.k - 1))
+    ref_price_index = int(np.clip(np.round(ref_price_continuous), 0, game.k - 1))
 
     return ref_price_index
 
@@ -141,8 +141,9 @@ def simulate_game(game):
             game.last_reference_observed_prices[:, 0] = a  # Insert new prices at first position
             game.last_observed_demand[:, 1:] = game.last_observed_demand[:, :-1]
             p = np.asarray(game.A[np.asarray(a)])
-            game.last_observed_demand[:, 0] = game.demand(p)
-            game.last_observed_reference = compute_reference_price(game, game.last_reference_observed_prices, game.last_observed_demand)
+            ref = np.asarray(game.R[np.asarray(game.last_observed_reference)])
+            game.last_observed_demand[:, 0] = game.demand(p, ref)
+            game.last_observed_reference = compute_reference_price(game, game.last_observed_reference, game.last_reference_observed_prices, game.last_observed_demand)
 
 
         # **Update State**
@@ -176,7 +177,6 @@ def run_sessions(game):
     for iSession in range(game.num_sessions):
         if game.aprint:
             print(f"\nStarting Session {iSession + 1}/{game.num_sessions}")
-            print(game.NashProfits,  game.CoopProfits)
 
         game.Q = game.init_Q()  # Reset Q-values
         game.last_observed_prices = np.zeros((game.n, game.memory), dtype=int)  # Reset prices
@@ -203,19 +203,48 @@ def run_sessions(game):
 
         # If converged, analyze post-convergence cycles
         if converged:
-            # During session simulation
-            cycle_length, visited_states, visited_profits, price_history = detect_cycle(game, iSession)
-            # You can then use these results to compute aggregate statistics
-            avg_profits = np.mean(visited_profits, axis=0)
-            print('cycle length',cycle_length)
-            print('visited_states',visited_states)
-            print('visited_profits',visited_profits)
-            print('price_history',price_history)
+            if game.demand_type == 'noreference':
+                # Pass iSession to detect_cycle function
+                cycle_length, visited_states, visited_profits, price_history, _, consumer_surplus_history = detect_cycle(game, iSession)  # Now passing iSession
+                cycle_data = {
+                    'cycle_length': cycle_length,
+                    'visited_states': visited_states,
+                    'visited_profits': visited_profits,
+                    'price_history': price_history,
+                    'consumer_surplus_history': consumer_surplus_history
+                }
+            if game.demand_type == 'reference':
+                # Pass iSession to detect_cycle function
+                cycle_length, visited_states, visited_profits, price_history, reference_price_history, consumer_surplus_history = detect_cycle(game, iSession)  # Now passing iSession
+                cycle_data = {
+                    'cycle_length': cycle_length,
+                    'visited_states': visited_states,
+                    'visited_profits': visited_profits,
+                    'price_history': price_history,
+                    'reference_price_history': reference_price_history,
+                    'consumer_surplus_history': consumer_surplus_history
+                }
 
         #post_convergence_analysis(game)
 
     print("\nAll sessions completed.")
     return game
+
+
+def compute_consumer_surplus(game, prices, r):
+    """
+    Computes consumer surplus given current prices and reference price.
+    """
+    if game.demand_type == 'noreference':
+        e = np.exp((game.a - prices) / game.mu)
+        surplus = game.mu * np.log(np.sum(e) + np.exp(game.a0 / game.mu))
+    elif game.demand_type == 'reference':
+        # Effective price: p_i^eff = p_i + gamma * (p_i - r)
+        p_eff = prices + game.gamma * (prices - r)  # elementwise adjustment
+        e = np.exp((game.a - p_eff) / game.mu)
+        surplus = game.mu * np.log(np.sum(e) + np.exp(game.a0 / game.mu))
+            
+    return surplus
 
 
 def detect_cycle(game, session_idx):
@@ -239,17 +268,21 @@ def detect_cycle(game, session_idx):
         - visited_states: Array of states visited during simulation
         - visited_profits: Array of profits for each state visited
         - price_history: History of prices chosen by agents
+        - consumer_surplus_history: History of consumer surplus values
     """
     # Initialize arrays to store visited states and profits
     visited_states = np.zeros(game.num_periods, dtype=int)
     visited_profits = np.zeros((game.n, game.num_periods))
     price_history = np.zeros((game.n, game.num_periods), dtype=int)
-    reference_price_history = np.zeros((1, game.num_periods), dtype=int)
+    demand_history = np.zeros((game.n, game.num_periods), dtype=int)
+    reference_price_history = np.zeros(game.num_periods, dtype=int)
+    consumer_surplus_history = np.zeros(game.num_periods)  # Store consumer surplus at each period
+    
     
     if game.demand_type == 'noreference':
         # Initialize with last observed prices
         p = np.copy(game.last_observed_prices)  # Shape: (n, memory)
-
+        r = 0 
         # Get initial optimal actions from current state
         p_prime = game.index_strategies[:, *p.flatten(), session_idx]
         old_argmax = np.argmax(game.Q[:, *p], axis=-1)
@@ -282,9 +315,9 @@ def detect_cycle(game, session_idx):
                 d[:, 1:] = d[:, :-1]  # Shift older demands up
 
             p[:, 0] = p_prime  # Update most recent prices
-            d[:, 0] = game.demand(np.asarray(game.A[np.asarray(p_prime)]),r) 
+            d[:, 0] = game.demand(np.asarray(game.A[np.asarray(p_prime)]),np.asarray(game.R[np.asarray(r)])) 
+            r = compute_reference_price(game, r, p, d)
 
-            r = int(np.clip(round(np.sum(p_prime * d[:, 0])), 0, game.k - 1))
 
         price_history[:, i_period] = p_prime
         
@@ -295,11 +328,16 @@ def detect_cycle(game, session_idx):
             visited_profits[:, i_period] = game.PI[tuple(p_prime)]
 
         if game.demand_type == 'reference':
-            reference_price_history[:, i_period] = r
+            reference_price_history[i_period] = r
             # Record current state
             visited_states[i_period] = compute_state_number(game, p, r)
             # Compute and record profits
             visited_profits[:, i_period] = game.PI[tuple(np.append(p_prime, r))]
+        
+        # **Compute Consumer Surplus**
+        current_prices = np.asarray(game.A[np.asarray(p_prime)])  # Convert price indices to actual prices
+        consumer_surplus_history[i_period] = compute_consumer_surplus(game, current_prices, np.asarray(game.R[np.asarray(r)]))
+
 
         # Check if we've seen this state before (cycle detection)
         if i_period >= 1:
@@ -313,6 +351,7 @@ def detect_cycle(game, session_idx):
                     visited_states = visited_states[cycle_start:i_period + 1]
                     visited_profits = visited_profits[:, cycle_start:i_period + 1]
                     price_history = price_history[:, cycle_start:i_period + 1]
+                    consumer_surplus_history = consumer_surplus_history[cycle_start:i_period + 1]
                     
                     # Update game parameters
                     game.cycle_length[session_idx] = cycle_length
@@ -321,18 +360,20 @@ def detect_cycle(game, session_idx):
                     game.cycle_states[:len(visited_states), session_idx] = visited_states
 
                     if game.demand_type == 'reference':
-                        reference_price_history = reference_price_history[:, cycle_start:i_period + 1]
-                        game.cycle_reference_prices[0, :cycle_length, session_idx] = reference_price_history
+                        reference_price_history = reference_price_history[cycle_start:i_period + 1]
+                        game.cycle_reference_prices[ :cycle_length, session_idx] = reference_price_history
                     
-                    # Update cycle prices
+                    # Update cycle prices and profits
                     for i in range(game.n):
                         game.cycle_prices[i, :cycle_length, session_idx] = price_history[i, :cycle_length]
-                    
-                    # Update cycle profits
-                    for i in range(game.n):
                         game.cycle_profits[i, :cycle_length, session_idx] = visited_profits[i, :cycle_length]
                     
-                    return cycle_length, visited_states, visited_profits, price_history
+                    game.cycle_consumer_surplus[:cycle_length, session_idx] = consumer_surplus_history
+                    
+                    if game.demand_type == 'noreference':
+                        return cycle_length, visited_states, visited_profits, price_history, reference_price_history, consumer_surplus_history 
+                    if game.demand_type == 'reference':
+                        return cycle_length, visited_states, visited_profits, price_history, reference_price_history, consumer_surplus_history
                 
         if game.demand_type == 'noreference':
             # Update p_prime for next iteration
@@ -351,7 +392,9 @@ def detect_cycle(game, session_idx):
         game.cycle_prices[i, :, session_idx] = price_history[:, i]
         game.cycle_profits[i, :, session_idx] = visited_profits[:, i]
     
-    return game.num_periods, visited_states, visited_profits, price_history
+    game.cycle_consumer_surplus[:, session_idx] = consumer_surplus_history
+    
+    return game.num_periods, visited_states, visited_profits, price_history, reference_price_history, consumer_surplus_history
 
 
 def compute_state_number(game, prices, reference_price):

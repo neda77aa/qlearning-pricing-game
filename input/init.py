@@ -39,16 +39,17 @@ class model(object):
         """Initialize game with default values"""
         # Default properties
         self.n = kwargs.get('n', 2)
-        self.alpha = kwargs.get('alpha', 0.15)
+        self.alpha = kwargs.get('alpha', 0.15) # learning parameter
         self.beta = kwargs.get('beta', 4e-6)
-        self.delta = kwargs.get('delta', 0.95)
-        self.gamma = kwargs.get('gamma', 2)
-        self.c = kwargs.get('c', 1)
-        self.a = kwargs.get('a', 2)
-        self.a0 = kwargs.get('a0', 0)
-        self.mu = kwargs.get('mu', 0.25)
+        self.delta = kwargs.get('delta', 0.95) # 
+        self.gamma = kwargs.get('gamma', 1)  # reference effect(in logit model)
+        self.lambda_ = kwargs.get('lambda', 0.5)  # reference update rate
+        self.c = kwargs.get('c', 1) # cost
+        self.a = kwargs.get('a', 2) # quality
+        self.a0 = kwargs.get('a0', 0) # outside option
+        self.mu = kwargs.get('mu', 0.25) #horizontal differentiation parameter 
         self.extend = kwargs.get('extend', 0.1)
-        self.k = kwargs.get('k', 15)
+        self.k = kwargs.get('k', 15) # number of discrete prices
         self.memory = kwargs.get('memory', 1)
         self.reference_memory = kwargs.get('reference_memory', 1)
 
@@ -68,7 +69,13 @@ class model(object):
         # Derived state and action space
         self.adim, self.sdim, self.s0 = self.init_state()
         self.p_minmax = self.compute_p_competitive_monopoly()
-        print(self.p_minmax)
+        demand_type = self.demand_type
+        self.demand_type = 'noreference'
+        self.pmin_max_noreference = self.compute_p_competitive_monopoly()
+        self.demand_type = 'reference'
+        self.pmin_max_reference = self.compute_p_competitive_monopoly()
+        self.demand_type = demand_type
+        
 
         # Compute Nash and cooperative prices and profits
         self.NashProfits,  self.CoopProfits = self.compute_profits_nash_coop()
@@ -98,7 +105,8 @@ class model(object):
         self.cycle_length = np.zeros(self.num_sessions, dtype=int)  # Cycle length
         self.cycle_states = np.zeros((self.num_periods, self.num_sessions), dtype=int)  # Cycle states
         self.cycle_prices = np.zeros((self.n, self.num_periods, self.num_sessions), dtype=float)  # Cycle prices
-        self.cycle_reference_prices = np.zeros((1, self.num_periods, self.num_sessions), dtype=float)  # Cycle prices
+        self.cycle_reference_prices = np.zeros((self.num_periods, self.num_sessions), dtype=float)  # Cycle ref prices
+        self.cycle_consumer_surplus = np.zeros((self.num_periods, self.num_sessions), dtype=float)  # Cycle consumer surplus
         self.cycle_profits = np.zeros((self.n, self.num_periods, self.num_sessions), dtype=float)  # Cycle profits
         self.index_actions = np.zeros((self.num_actions, self.n), dtype=int)  # Action indices
         self.profit_gains = np.zeros((self.num_actions, self.n), dtype=float)  # Profit gains
@@ -233,19 +241,10 @@ class model(object):
         for i in range(self.n):  # Loop over agents
             profit_gain[:, :, i] = (self.PI[:, :, i] - self.NashProfits[i]) / (self.CoopProfits[i] - self.NashProfits[i])
         
-        print(profit_gain.shape)
         # Calculate average profit gain across states for each agent
         avg_profit_gain = np.mean(profit_gain, axis=2)  # Average across all states
         
         return avg_profit_gain
-
-
-    def init_actions_initial(self):
-        """Get action space of the firms"""
-        a = np.linspace(min(self.p_minmax[0]), max(self.p_minmax[1]), self.k - 2)
-        delta = a[1] - a[0]
-        A = np.linspace(min(a) - delta, max(a) + delta, self.k)
-        return A
     
 
     def init_actions(self):
@@ -259,9 +258,16 @@ class model(object):
         R : ndarray
             Discretized set of reference prices.
         """
-        # Compute the lower and upper bounds of the price grid
-        p_nash, p_coop = min(self.p_minmax[0]), max(self.p_minmax[1])
+        type = 2
+        if type == 1:
+            # Compute the lower and upper bounds of the price grid
+            p_nash, p_coop = min(self.p_minmax[0]), max(self.p_minmax[1])
 
+        if type == 2:
+            # Compute the lower and upper bounds considering both demand types
+            p_nash = np.min([np.min(self.pmin_max_noreference), np.min(self.pmin_max_reference)])
+            p_coop = np.max([np.max(self.pmin_max_noreference), np.max(self.pmin_max_reference)])
+        
         # Calculate bounds
         lower_bound = p_nash - self.extend * (p_coop - p_nash)
         upper_bound = p_coop + self.extend * (p_coop - p_nash)
@@ -328,7 +334,6 @@ class model(object):
                 
                 for r_idx, r in enumerate(game.R):  # Iterate over actual reference prices
                     PI[a + (r_idx,)] = game.compute_profits(p, r)  # Compute profits
-
         return PI
     
     def init_PG(game):
