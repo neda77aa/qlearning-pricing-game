@@ -28,8 +28,8 @@ class ExperimentSaver:
         os.makedirs(self.experiment_dir, exist_ok=True)
             
     def get_run_dir(self, gamma, lambda_):
-        """Create directory for specific alpha-beta combination"""
-        run_name = f"alpha_{gamma}_beta_{lambda_}" #_{self.timestamp}"
+        """Create directory for specific gamma, lambda combination"""
+        run_name = f"gamma_{gamma}_lambda_{lambda_}" #_{self.timestamp}"
         run_dir = os.path.join(self.experiment_dir, run_name)
         os.makedirs(run_dir, exist_ok=True)
         return run_dir
@@ -44,6 +44,7 @@ class ExperimentSaver:
             'Beta_1': game.beta,
             'Beta_2': game.beta,
             'Delta': game.delta,
+            'Gamma': game.gamma,
             'Lossaversion_aversion': game.lossaversion,
             'Lambda' : game.lambda_,
             'a0': game.a0,
@@ -165,7 +166,6 @@ class ExperimentSaver:
                 actual_prices = np.asarray(game.A[np.asarray(game.cycle_prices[i_player, :cycle_len, i_session], dtype=int)])
                 mean_prices[i_player, i_session] = np.mean(actual_prices)
                 price_gains[i_player, i_session] = (mean_prices[i_player, i_session] - game.p_nash[i_player]) / (game.p_coop[i_player] - game.p_nash[i_player])
-                print(mean_prices[i_player, i_session], game.p_nash[i_player], game.p_coop[i_player])
 
             # Compute reference price statistics
             if game.demand_type == 'reference':
@@ -238,18 +238,18 @@ def save_experiment(game, experiment_name, gamma, lambda_):
 
 ## Single Computing Session 
 
-def run_experiment(game, gamma_values, lambda_values, num_sessions=1000, demand_type = 'noreference', experiment_name = 'test'):
+def run_experiment_gl(game, gamma_values, lambda_values, num_sessions=1000, demand_type = 'noreference', experiment_name = 'test'):
     """
-    Run experiments with different alpha and beta values
+    Run experiments with different gamma and lambda values
     
     Parameters:
     -----------
     game : object
         Game instance
-    alpha_values : array-like
-        Array of alpha values to test
-    beta_values : array-like
-        Array of beta values to test
+    gamma_values : array-like
+        Array of gamma values to test
+    lambda_values : array-like
+        Array of lambda values to test
     num_sessions : int
         Number of sessions per experiment
     num_processes : int, optional
@@ -263,7 +263,7 @@ def run_experiment(game, gamma_values, lambda_values, num_sessions=1000, demand_
     for i, gamma in enumerate(gamma_values):
         for j, lambda_ in enumerate(lambda_values):
             # Configure experiment
-            experiment_id = f"alpha_{gamma}_beta_{lambda_}"
+            experiment_id = f"gamma_{gamma}_lambda_{lambda_}"
             
             # Update game parameters for this experiment
             game.alpha = alpha_fixed
@@ -291,11 +291,11 @@ def run_experiment(game, gamma_values, lambda_values, num_sessions=1000, demand_
             game.index_last_reference = np.zeros((game.num_sessions,), dtype=int)  # Store last reference price
 
 
-            # Run all sessions for this alpha-beta combination
+            # Run all sessions for this gamma_lambda combination
             for iSession in range(game.num_sessions):
                 if game.aprint:
                     print(f"\nStarting Session {iSession + 1}/{game.num_sessions}")
-                    print(f"Current alpha: {gamma}, beta: {lambda_}")
+                    print(f"Current gamma: {gamma}, lambda: {lambda_}")
 
                 game.Q = game.init_Q()  # Reset Q-values
                 game.last_observed_prices = np.zeros((game.n, game.memory), dtype=int)  # Reset prices
@@ -345,11 +345,11 @@ def run_experiment(game, gamma_values, lambda_values, num_sessions=1000, demand_
                             'reference_price_history': reference_price_history,
                             'consumer_surplus_history': consumer_surplus_history
                         }
-            # Save results for this alpha-beta combination
-            run_dir = save_experiment(game, experiment_name, alpha, beta)
+            # Save results for this gamma-lambda combination
+            run_dir = save_experiment(game, experiment_name, gamma, lambda_)
 
             if game.aprint:
-                print(f"\nCompleted experiment for alpha={alpha}, beta={beta}")
+                print(f"\nCompleted experiment for gamma={gamma}, lambda={lambda_}")
                 print(f"Results saved under experiment ID: {experiment_id}")
 
     print("\nAll experiments completed.")
@@ -465,9 +465,9 @@ def run_single_session(game, iSession):
     }
 
 
-def run_experiment_parallel(game, alpha_values, beta_values, num_sessions=1000, experiment_name='test',  demand_type = 'noreference', num_processes=None):
+def run_experiment_parallel_gl(game, gamma_values, lambda_values, num_sessions=1000, experiment_name='test',  demand_type = 'noreference', num_processes=None):
     """
-    Run experiments with different alpha and beta values using parallel processing
+    Run experiments with different gamma and lambda values using parallel processing
     """
     if num_processes is None:
         num_processes = max(1, mp.cpu_count() - 2)
@@ -476,20 +476,26 @@ def run_experiment_parallel(game, alpha_values, beta_values, num_sessions=1000, 
     # Run sessions in parallel with error handling
     print(f"Starting parallel processing with {num_processes} processes for {num_sessions} sessions")
     
-    for i, alpha in enumerate(alpha_values):
-        for j, beta in enumerate(beta_values):
+    # Fixed values
+    alpha_fixed = 0.15
+    beta_fixed = 0.1 / 2500
 
-            # Check if this alpha-beta combination has already been run
-            run_dir = os.path.join("../Results/experiments", experiment_name, f"alpha_{alpha}_beta_{beta}")
+    for i, gamma in enumerate(gamma_values):
+        for j, lambda_ in enumerate(lambda_values):
+
+            # Check if this gamma-lambda combination has already been run
+            run_dir = os.path.join("../Results/experiments", experiment_name, f"gamma_{gamma}_lambda_{lambda_}")
             stats_file = os.path.join(run_dir, "cycle_statistics.csv")
 
             if os.path.exists(stats_file):
-                print(f"Skipping alpha={alpha}, beta={beta} (already exists in {run_dir})")
+                print(f"Skipping gamma_{gamma}_lambda_{lambda_} (already exists in {run_dir})")
                 continue  # Skip already completed experiments
 
             # Update game parameters
-            game.alpha = alpha
-            game.beta = beta
+            game.alpha = alpha_fixed
+            game.beta = beta_fixed
+            game.gamma = gamma  # Varying gamma
+            game.lambda_ = lambda_  # Varying lambda
             game.num_sessions = num_sessions
             game.demand_type = demand_type
             
@@ -517,7 +523,7 @@ def run_experiment_parallel(game, alpha_values, beta_values, num_sessions=1000, 
                 game.index_last_reference = np.zeros((game.num_sessions,), dtype=int)  # Store last reference price
 
             #if game.aprint:
-            print(f"\nStarting alpha={alpha}, beta={beta} with {num_processes} processes")
+            print(f"\nStarting gamma={gamma}, lambda={lambda_} with {num_processes} processes")
             
             try:
                 # Run sessions in parallel with error handling
@@ -555,15 +561,15 @@ def run_experiment_parallel(game, alpha_values, beta_values, num_sessions=1000, 
                         if game.demand_type == 'reference':
                             game.cycle_reference_prices[:cycle_len, iSession] = cycle_data['reference_price_history']
 
-                # Save results for this alpha-beta combination
-                run_dir = save_experiment(game, experiment_name, alpha, beta)
+                # Save results for this gamma-lambda combination
+                run_dir = save_experiment(game, experiment_name, gamma, lambda_)
                 
                 if game.aprint:
-                    print(f"Completed alpha={alpha}, beta={beta}")
+                    print(f"Completed gamma={gamma}, lambda={lambda_}")
                     print(f"Results saved in {run_dir}")
                     
             except Exception as e:
-                print(f"Error processing alpha={alpha}, beta={beta}: {str(e)}")
+                print(f"Error processing gamma={gamma}, lambda={lambda_}: {str(e)}")
                 import traceback
                 traceback.print_exc()  # Print full error details
                 continue
