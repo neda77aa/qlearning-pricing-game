@@ -43,6 +43,7 @@ class model(object):
         self.beta = kwargs.get('beta', 4e-6)
         self.delta = kwargs.get('delta', 0.95) # 
         self.gamma = kwargs.get('gamma', 1)  # reference effect(in logit model)
+        self.lossaversion = kwargs.get('lossaversion', 1.5)
         self.lambda_ = kwargs.get('lambda', 0.5)  # reference update rate
         self.c = kwargs.get('c', 1) # cost
         self.a = kwargs.get('a', 2) # quality
@@ -56,10 +57,18 @@ class model(object):
         # Get demand_type from kwargs, defaulting to 'noreference'
         valid_demand_types = {'reference', 'noreference'}  # Allowed values
         self.demand_type = kwargs.get('demand_type', 'noreference')
+
         # Validate input
         if self.demand_type not in valid_demand_types:
             raise ValueError(f"Invalid demand_type: {self.demand_type}. Allowed values: {valid_demand_types}")
         self.ref_type = "average"
+
+        # if lossaversion coefficient is larger than 1 we will go with the loss aversion approach
+        if self.lossaversion>1:
+            self.reference_loss_aversion = True
+        else:
+            self.reference_loss_aversion = False
+
     
         self.num_sessions = kwargs.get('num_sessions', 100)
         self.tstable = kwargs.get('tstable', 1e5)
@@ -79,6 +88,7 @@ class model(object):
 
         # Compute Nash and cooperative prices and profits
         self.NashProfits,  self.CoopProfits = self.compute_profits_nash_coop()
+        self.p_nash, self.p_coop = self.p_minmax[0], self.p_minmax[1]
         self.A, self.R = self.init_actions()
         self.PI = self.init_PI()
         self.PG = self.init_PG()
@@ -157,7 +167,18 @@ class model(object):
 
             # Effective price: p_i^eff = p_i + gamma * (p_i - r)
             p_eff = p + self.gamma * (p - r)  # elementwise adjustment
-            
+
+            if self.reference_loss_aversion:
+                # Compute loss aversion adjustment
+                price_above_r = p >= r  # Boolean array: True if p_i > r
+                price_below_r = p < r  # Boolean array: True if p_i < r
+
+                # Loss aversion effect: Consumers react strongly if p > r
+                p_eff = (
+                    p + self.gamma * (p - r) * price_below_r  # Standard reference adjustment
+                    + self.lossaversion * self.gamma * (p - r) * price_above_r  # Stronger penalty if price > r
+                )
+
             # Logit exponent: exp((a_i - p_eff_i)/mu)
             e = np.exp((self.a - p_eff) / self.mu)
             
@@ -175,7 +196,16 @@ class model(object):
         if self.demand_type == 'noreference':
             zero = 1 - (p - self.c) * (1 - d) / self.mu
         if self.demand_type == 'reference':
-            zero = 1 - (1 + self.gamma) * (p - self.c) * (1 - d) / self.mu
+            if self.reference_loss_aversion:
+                p_c = p.copy()
+                r  = self.reference_price(p_c)
+                # Compute smooth price indicators
+                price_above_r = 1 / (1 + np.exp(-10 * (p - r)))  # Smooth transition for p > r
+                price_below_r = 1 / (1 + np.exp(10 * (p - r)))   # Smooth transition for p < r
+
+                zero = 1 - (1 + self.gamma * price_below_r  + self.gamma * self.lossaversion * price_above_r) * (p - self.c) * (1 - d) / self.mu  # Adjusted FOC
+            else: 
+                zero = 1 - (1 + self.gamma) * (p - self.c) * (1 - d) / self.mu
 
         return np.squeeze(zero)
     
@@ -189,7 +219,16 @@ class model(object):
         if self.demand_type == 'noreference':
             zero = 1 - ((p - self.c) * (1 - d) / self.mu) + ((total_contribution - own_contribution) / self.mu)
         if self.demand_type == 'reference':
-            zero = 1 - (1 + self.gamma) * ((p - self.c) * (1 - d) / self.mu) + (1 + self.gamma) * ((total_contribution - own_contribution) / self.mu)
+            if self.reference_loss_aversion:
+                p_c = p.copy()
+                r  = self.reference_price(p_c)
+                # Compute smooth price indicators
+                price_above_r = 1 / (1 + np.exp(-10 * (p - r)))  # Smooth transition for p > r
+                price_below_r = 1 / (1 + np.exp(10 * (p - r)))   # Smooth transition for p < r
+
+                zero = 1 - (1 + self.gamma * price_below_r  + self.gamma * self.lossaversion * price_above_r) * ((p - self.c) * (1 - d) / self.mu) + (1 + self.gamma * price_below_r  + self.gamma * self.lossaversion * price_above_r) * ((total_contribution - own_contribution) / self.mu)
+            else: 
+                zero = 1 - (1 + self.gamma) * ((p - self.c) * (1 - d) / self.mu) + (1 + self.gamma) * ((total_contribution - own_contribution) / self.mu)
         return np.squeeze(zero)
     
     def compute_p_competitive_monopoly(self):

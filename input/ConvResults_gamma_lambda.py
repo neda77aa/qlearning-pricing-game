@@ -27,9 +27,9 @@ class ExperimentSaver:
         """Create necessary directories if they don't exist"""
         os.makedirs(self.experiment_dir, exist_ok=True)
             
-    def get_run_dir(self, alpha, beta):
+    def get_run_dir(self, gamma, lambda_):
         """Create directory for specific alpha-beta combination"""
-        run_name = f"alpha_{alpha}_beta_{beta}" #_{self.timestamp}"
+        run_name = f"alpha_{gamma}_beta_{lambda_}" #_{self.timestamp}"
         run_dir = os.path.join(self.experiment_dir, run_name)
         os.makedirs(run_dir, exist_ok=True)
         return run_dir
@@ -215,10 +215,10 @@ class ExperimentSaver:
         df_stats = pd.DataFrame([cycle_stats])
         df_stats.to_csv(os.path.join(run_dir, "cycle_statistics.csv"), index=False)
 
-def save_experiment(game, experiment_name, alpha, beta):
+def save_experiment(game, experiment_name, gamma, lambda_):
     """Main function to save all experiment data"""
     saver = ExperimentSaver(experiment_name)
-    run_dir = saver.get_run_dir(alpha, beta)  # Use the get_run_dir method
+    run_dir = saver.get_run_dir(gamma, lambda_)  # Use the get_run_dir method
     
     # Save all components
     saver.save_experiment_config(game, run_dir)
@@ -238,7 +238,7 @@ def save_experiment(game, experiment_name, alpha, beta):
 
 ## Single Computing Session 
 
-def run_experiment(game, alpha_values, beta_values, num_sessions=1000, demand_type = 'noreference', experiment_name = 'test'):
+def run_experiment(game, gamma_values, lambda_values, num_sessions=1000, demand_type = 'noreference', experiment_name = 'test'):
     """
     Run experiments with different alpha and beta values
     
@@ -255,15 +255,21 @@ def run_experiment(game, alpha_values, beta_values, num_sessions=1000, demand_ty
     num_processes : int, optional
         Number of processes to use. If None, uses CPU count - 1
     """
+
+    # Fixed values
+    alpha_fixed = 0.15
+    beta_fixed = 0.1 / 2500
     
-    for i, alpha in enumerate(alpha_values):
-        for j, beta in enumerate(beta_values):
+    for i, gamma in enumerate(gamma_values):
+        for j, lambda_ in enumerate(lambda_values):
             # Configure experiment
-            experiment_id = f"alpha_{alpha}_beta_{beta}"
+            experiment_id = f"alpha_{gamma}_beta_{lambda_}"
             
             # Update game parameters for this experiment
-            game.alpha = alpha
-            game.beta = beta
+            game.alpha = alpha_fixed
+            game.beta = beta_fixed
+            game.gamma = gamma  # Varying gamma
+            game.lambda_ = lambda_  # Varying lambda
             game.num_sessions = num_sessions
             game.demand_type = demand_type
             
@@ -289,7 +295,7 @@ def run_experiment(game, alpha_values, beta_values, num_sessions=1000, demand_ty
             for iSession in range(game.num_sessions):
                 if game.aprint:
                     print(f"\nStarting Session {iSession + 1}/{game.num_sessions}")
-                    print(f"Current alpha: {alpha}, beta: {beta}")
+                    print(f"Current alpha: {gamma}, beta: {lambda_}")
 
                 game.Q = game.init_Q()  # Reset Q-values
                 game.last_observed_prices = np.zeros((game.n, game.memory), dtype=int)  # Reset prices
