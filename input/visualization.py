@@ -469,7 +469,9 @@ def _create_heatmap_gl(gamma_values, lambda_values, data_values, metric_name, fi
         i = np.where(unique_gammas == gamma)[0][0]  # Find row index
         j = np.where(unique_lambdas == lambda_)[0][0]  # Find column index
         data_grid[i, j] = value
-
+    
+    # remove last lambda 
+    # data_grid = data_grid[:,0:20-1]
     data_grid = replace_nans_and_zeros(data_grid, data_values)
 
     if figsize is not None:

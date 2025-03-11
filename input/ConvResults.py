@@ -165,8 +165,7 @@ class ExperimentSaver:
                 actual_prices = np.asarray(game.A[np.asarray(game.cycle_prices[i_player, :cycle_len, i_session], dtype=int)])
                 mean_prices[i_player, i_session] = np.mean(actual_prices)
                 price_gains[i_player, i_session] = (mean_prices[i_player, i_session] - game.p_nash[i_player]) / (game.p_coop[i_player] - game.p_nash[i_player])
-                print(mean_prices[i_player, i_session], game.p_nash[i_player], game.p_coop[i_player])
-
+               
             # Compute reference price statistics
             if game.demand_type == 'reference':
                 reference_prices = np.asarray(game.A[np.asarray(game.cycle_reference_prices[:cycle_len, i_session], dtype=int)]) # Extract reference prices

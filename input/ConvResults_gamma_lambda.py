@@ -47,6 +47,10 @@ class ExperimentSaver:
             'Gamma': game.gamma,
             'Lossaversion_aversion': game.lossaversion,
             'Lambda' : game.lambda_,
+            'Pnash': game.p_minmax[0],
+            'Pcoop': game.p_minmax[1],
+            'Pricenash': game.compute_p_competitive_monopoly(),
+            'Pricecoop': game.compute_p_competitive_monopoly(),
             'a0': game.a0,
             'a1': game.a,
             'a2': game.a,
@@ -270,6 +274,7 @@ def run_experiment_gl(game, gamma_values, lambda_values, num_sessions=1000, dema
             game.beta = beta_fixed
             game.gamma = gamma  # Varying gamma
             game.lambda_ = lambda_  # Varying lambda
+            game.p_minmax = game.compute_p_competitive_monopoly()
             game.num_sessions = num_sessions
             game.demand_type = demand_type
             
@@ -496,6 +501,8 @@ def run_experiment_parallel_gl(game, gamma_values, lambda_values, num_sessions=1
             game.beta = beta_fixed
             game.gamma = gamma  # Varying gamma
             game.lambda_ = lambda_  # Varying lambda
+            game.p_minmax = game.compute_p_competitive_monopoly()
+            print(game.gamma, game.lambda_, game.p_minmax)
             game.num_sessions = num_sessions
             game.demand_type = demand_type
             

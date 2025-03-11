@@ -24,7 +24,7 @@ if __name__ == '__main__':
     # Add freeze_support
     freeze_support()
 
-    Desired_Experiment = 'gamma_lambda'
+    Desired_Experiment = 'alpha_beta'
 
     ###########################################
     # generating alpha beta figures
@@ -39,11 +39,11 @@ if __name__ == '__main__':
     # generating alpha beta figures
     if Desired_Experiment == 'alpha_beta':
         # Define parameter ranges to test
-        alpha_values = np.linspace(0.0075, 0.075, 4)  # 10 values between 0.001 and 0.01
-        beta_values = np.linspace(0.01/25000, 0.07/25000, 4)   # 10 values between 0.001 and 0.01
+        alpha_values = np.linspace(0.0045, 0.25, 40)  # 10 values between 0.001 and 0.01
+        beta_values = np.linspace(0.009/25000, 0.5/25000, 40)   # 10 values between 0.001 and 0.01
 
         experiment_base_name =  "reference_impact_loss_aversion/alpha_beta"
-        num_sessions = 4
+        num_sessions = 20
         aprint = True
 
         # Store experiment directories for later comparison
@@ -59,7 +59,7 @@ if __name__ == '__main__':
             # game = run_experiment(game, alpha_values, beta_values, num_sessions= num_sessions, experiment_name = experiment_name, demand_type = demand_type)
 
             # Or specify number of processes
-            game = run_experiment_parallel(game, alpha_values, beta_values, num_sessions=num_sessions, experiment_name = experiment_name, demand_type = demand_type, num_processes=4)
+            game = run_experiment_parallel(game, alpha_values, beta_values, num_sessions=num_sessions, experiment_name = experiment_name, demand_type = demand_type, num_processes=8)
             # Store experiment directory
             experiment_dirs[demand_type] = os.path.join("../Results/experiments", experiment_name)
 
@@ -100,18 +100,18 @@ if __name__ == '__main__':
 
     if Desired_Experiment == 'gamma_lambda':
        # Define parameter ranges to test
-        gamma_values = np.linspace(0, 3, 4)  # 10 values between 0.001 and 0.01
-        lambda_values = np.linspace(0, 1, 4)   # 10 values between 0.001 and 0.01
+        gamma_values = np.linspace(0, 3, 20)  
+        lambda_values = np.linspace(0, 0.9, 20)   
 
         experiment_base_name =  "reference_impact_loss_aversion/gamma_lambda"
-        num_sessions = 4
+        num_sessions = 20
         aprint = True
 
         # Store experiment directories for later comparison
         experiment_dirs = {}
 
 
-        for demand_type in ['noreference','reference']:
+        for demand_type in ['reference']:
             experiment_name = experiment_base_name + "_" + demand_type
 
             game = model(n=2, k = 15, memory = 1, num_sessions = num_sessions, aprint = aprint, demand_type = demand_type)
@@ -140,18 +140,18 @@ if __name__ == '__main__':
 
         # # Compute differences between reference and no-reference experiments
         # Create Figures directory inside the experiment directory
-        figures_dir = os.path.join("../Results/experiments", experiment_base_name, "Figures")
-        os.makedirs(figures_dir, exist_ok=True)
-        # Run side-by-side heatmaps for price, profit, and cycle length
-        fig1 = create_comparative_heatmaps_gl("../Results/experiments", experiment_dirs, metric_name="Price")
-        fig2 = create_comparative_heatmaps_gl("../Results/experiments", experiment_dirs, metric_name="Profit")
-        fig3 = create_comparative_heatmaps_gl("../Results/experiments", experiment_dirs, metric_name="Surplus")
-        fig4 = create_comparative_heatmaps_gl("../Results/experiments", experiment_dirs, metric_name="Cycle Length")
+        # figures_dir = os.path.join("../Results/experiments", experiment_base_name, "Figures")
+        # os.makedirs(figures_dir, exist_ok=True)
+        # # Run side-by-side heatmaps for price, profit, and cycle length
+        # fig1 = create_comparative_heatmaps_gl("../Results/experiments", experiment_dirs, metric_name="Price")
+        # fig2 = create_comparative_heatmaps_gl("../Results/experiments", experiment_dirs, metric_name="Profit")
+        # fig3 = create_comparative_heatmaps_gl("../Results/experiments", experiment_dirs, metric_name="Surplus")
+        # fig4 = create_comparative_heatmaps_gl("../Results/experiments", experiment_dirs, metric_name="Cycle Length")
 
-        fig1.savefig(os.path.join(figures_dir, "price_dual_heatmap.png"))
-        fig2.savefig(os.path.join(figures_dir, "profit_dual_heatmap.png"))
-        fig3.savefig(os.path.join(figures_dir, "consumer_surplus_dual_heatmap.png"))
-        fig4.savefig(os.path.join(figures_dir, "cyclelength_dual_heatmap.png"))
+        # fig1.savefig(os.path.join(figures_dir, "price_dual_heatmap.png"))
+        # fig2.savefig(os.path.join(figures_dir, "profit_dual_heatmap.png"))
+        # fig3.savefig(os.path.join(figures_dir, "consumer_surplus_dual_heatmap.png"))
+        # fig4.savefig(os.path.join(figures_dir, "cyclelength_dual_heatmap.png"))
 
 
     #################################################
