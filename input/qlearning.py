@@ -112,7 +112,7 @@ def simulate_game(game):
     # Initialize last observed prices 
     game.last_observed_prices = np.reshape(s[:game.n * game.memory], (game.n, game.memory)).copy()  
 
-    if game.demand_type == 'reference':
+    if game.demand_type in ["reference", "misspecification"]:
         # **Initialize reference price tracking**
         initial_price = s[:game.n].reshape(game.n, 1)  # Extract initial prices
         game.last_reference_observed_prices = np.tile(initial_price, (1, game.reference_memory))  # Fill all reference slots
@@ -131,12 +131,14 @@ def simulate_game(game):
             pi = game.PI[tuple(a)]
         if game.demand_type == 'reference':
             pi = game.PI[tuple(np.append(a, s[-1]))]
+        if game.demand_type == 'misspecification':
+            pi = game.PI[tuple(np.append(a, game.last_observed_reference))]
 
         # **Update Last Observed Prices**
         game.last_observed_prices[:, 1:] = game.last_observed_prices[:, :-1]  # Shift old prices
         game.last_observed_prices[:, 0] = a  # Insert new prices at first position
         
-        if game.demand_type == 'reference':
+        if game.demand_type in ["reference", "misspecification"]:
             game.last_reference_observed_prices[:, 1:] = game.last_reference_observed_prices[:, :-1]  # Shift old prices
             game.last_reference_observed_prices[:, 0] = a  # Insert new prices at first position
             game.last_observed_demand[:, 1:] = game.last_observed_demand[:, :-1]
@@ -151,6 +153,9 @@ def simulate_game(game):
             sprime = game.last_observed_prices.flatten()   # Flatten to match state shape
         if game.demand_type == 'reference':
             sprime = np.append(game.last_observed_prices.flatten(), game.last_observed_reference)
+        if game.demand_type == 'misspecification':
+            sprime = game.last_observed_prices.flatten()   # Flatten to match state shape
+
         #sprime = a
         game.Q, stable = update_q(game, s, a, sprime, pi, stable) # Q-learning update
         s = sprime
@@ -181,7 +186,7 @@ def run_sessions(game):
         game.Q = game.init_Q()  # Reset Q-values
         game.last_observed_prices = np.zeros((game.n, game.memory), dtype=int)  # Reset prices
 
-        if game.demand_type == 'reference':
+        if game.demand_type in ["reference", "misspecification"]:
             game.last_reference_observed_prices = np.zeros((game.n, game.reference_memory), dtype=int)  # last prices
             game.last_observed_demand = np.zeros((game.n, game.reference_memory), dtype=float)  # last shares for each firm
 
@@ -213,7 +218,7 @@ def run_sessions(game):
                     'price_history': price_history,
                     'consumer_surplus_history': consumer_surplus_history
                 }
-            if game.demand_type == 'reference':
+            if game.demand_type in ["reference", "misspecification"]:
                 # Pass iSession to detect_cycle function
                 cycle_length, visited_states, visited_profits, price_history, reference_price_history, consumer_surplus_history = detect_cycle(game, iSession)  # Now passing iSession
                 cycle_data = {
@@ -238,7 +243,7 @@ def compute_consumer_surplus(game, prices, r):
     if game.demand_type == 'noreference':
         e = np.exp((game.a - prices) / game.mu)
         surplus = game.mu * np.log(np.sum(e) + np.exp(game.a0 / game.mu))
-    elif game.demand_type == 'reference':
+    elif game.demand_type in ["reference", "misspecification"]:
         # Effective price: p_i^eff = p_i + gamma * (p_i - r)
         p_eff = prices + game.gamma * (prices - r)  # elementwise adjustment
         e = np.exp((game.a - p_eff) / game.mu)
@@ -296,6 +301,13 @@ def detect_cycle(game, session_idx):
         p_prime = game.index_strategies[:, *s, session_idx]
         d = np.copy(game.last_observed_demand)
         
+    if game.demand_type == 'misspecification':
+        # Initialize with last observed prices
+        p = np.copy(game.last_observed_prices)  # Shape: (n, memory)
+        r = np.copy(game.last_observed_reference)
+        # Get initial optimal actions from current state
+        p_prime = game.index_strategies[:, *p.flatten(), session_idx]
+        d = np.copy(game.last_observed_demand)
     
     
     # Main loop for detecting cycles
@@ -308,7 +320,7 @@ def detect_cycle(game, session_idx):
             p[:, 0] = p_prime  # Update most recent prices
 
         
-        if game.demand_type == 'reference':
+        if game.demand_type in ["reference", "misspecification"]:
             # Update price history
             if game.memory > 1:
                 p[:, 1:] = p[:, :-1]  # Shift older prices up
@@ -331,6 +343,13 @@ def detect_cycle(game, session_idx):
             reference_price_history[i_period] = r
             # Record current state
             visited_states[i_period] = compute_state_number(game, p, r)
+            # Compute and record profits
+            visited_profits[:, i_period] = game.PI[tuple(np.append(p_prime, r))]
+
+        if game.demand_type == 'misspecification':
+            reference_price_history[i_period] = r
+            # Record current state
+            visited_states[i_period] = compute_state_number(game, p, 1)
             # Compute and record profits
             visited_profits[:, i_period] = game.PI[tuple(np.append(p_prime, r))]
         
@@ -359,7 +378,7 @@ def detect_cycle(game, session_idx):
                     # Update cycle states (pad with zeros if needed)
                     game.cycle_states[:len(visited_states), session_idx] = visited_states
 
-                    if game.demand_type == 'reference':
+                    if game.demand_type in ["reference", "misspecification"]:
                         reference_price_history = reference_price_history[cycle_start:i_period + 1]
                         game.cycle_reference_prices[ :cycle_length, session_idx] = reference_price_history
                     
@@ -372,7 +391,7 @@ def detect_cycle(game, session_idx):
                     
                     if game.demand_type == 'noreference':
                         return cycle_length, visited_states, visited_profits, price_history, reference_price_history, consumer_surplus_history 
-                    if game.demand_type == 'reference':
+                    if game.demand_type in ["reference", "misspecification"]:
                         return cycle_length, visited_states, visited_profits, price_history, reference_price_history, consumer_surplus_history
                 
         if game.demand_type == 'noreference':

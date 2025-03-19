@@ -99,7 +99,7 @@ class ExperimentSaver:
 
 
                 # If reference pricing is enabled, store reference prices
-                if game.demand_type == 'reference':
+                if game.demand_type in ["reference", "misspecification"]:
                     reference_prices = game.cycle_reference_prices[:cycle_len, i_session]  # Extract ref prices
                     reference_prices_str = ','.join([f"{r:.5g}" for r in reference_prices])  # Format as string
                     reference_prices_list.append(reference_prices_str)
@@ -119,7 +119,7 @@ class ExperimentSaver:
         session_summaries[f'cycle_consumer_surplus'] = consumer_surplus_list
 
         # Add reference prices if reference demand is used
-        if game.demand_type == 'reference':
+        if game.demand_type in ["reference", "misspecification"]:
             session_summaries[f'cycle_reference_prices'] = reference_prices_list
         
         df_summaries = pd.DataFrame(session_summaries)
@@ -148,7 +148,7 @@ class ExperimentSaver:
         mean_consumer_surplus = np.zeros(game.num_sessions)
 
         # If using reference pricing, store reference price statistics
-        if game.demand_type == 'reference':
+        if game.demand_type in ["reference", "misspecification"]:
             mean_reference_prices = np.zeros(game.num_sessions)
             std_reference_prices = np.zeros(game.num_sessions)
         
@@ -167,7 +167,7 @@ class ExperimentSaver:
                 price_gains[i_player, i_session] = (mean_prices[i_player, i_session] - game.p_nash[i_player]) / (game.p_coop[i_player] - game.p_nash[i_player])
                
             # Compute reference price statistics
-            if game.demand_type == 'reference':
+            if game.demand_type in ["reference", "misspecification"]:
                 reference_prices = np.asarray(game.A[np.asarray(game.cycle_reference_prices[:cycle_len, i_session], dtype=int)]) # Extract reference prices
                 mean_reference_prices[i_session] = np.mean(reference_prices)
                 std_reference_prices[i_session] = np.std(reference_prices)
@@ -205,7 +205,7 @@ class ExperimentSaver:
 
         
         # Add reference price statistics if applicable
-        if game.demand_type == 'reference':
+        if game.demand_type in ["reference", "misspecification"]:
             cycle_stats.update({
                 'mean_reference_price': f"{np.nanmean(mean_reference_prices):.5g}",
                 'std_reference_price': f"{np.nanstd(mean_reference_prices):.5g}"
@@ -293,7 +293,7 @@ def run_experiment(game, alpha_values, beta_values, num_sessions=1000, demand_ty
                 game.Q = game.init_Q()  # Reset Q-values
                 game.last_observed_prices = np.zeros((game.n, game.memory), dtype=int)  # Reset prices
 
-                if game.demand_type == 'reference':
+                if game.demand_type in ["reference", "misspecification"]:
                     game.last_reference_observed_prices = np.zeros((game.n, game.reference_memory), dtype=int)  # last prices
                     game.last_observed_demand = np.zeros((game.n, game.reference_memory), dtype=float)  # last shares for each firm
 
@@ -311,7 +311,7 @@ def run_experiment(game, alpha_values, beta_values, num_sessions=1000, demand_ty
                 # Store the learned strategies (optimal strategies at convergence)
                 game.index_strategies[..., iSession] = game.Q.argmax(axis=-1)
 
-                if game.demand_type == 'reference':
+                if game.demand_type in ["reference", "misspecification"]:
                     game.index_last_reference[iSession] = game.last_observed_reference
 
 
@@ -327,7 +327,7 @@ def run_experiment(game, alpha_values, beta_values, num_sessions=1000, demand_ty
                             'price_history': price_history,
                             'consumer_surplus_history': consumer_surplus_history
                         }
-                    if game.demand_type == 'reference':
+                    if game.demand_type in ["reference", "misspecification"]:
                         # Pass iSession to detect_cycle function
                         cycle_length, visited_states, visited_profits, price_history, reference_price_history, consumer_surplus_history = detect_cycle(game, iSession)  # Now passing iSession
                         cycle_data = {
@@ -377,7 +377,7 @@ def run_single_session(game, iSession):
     game_copy.Q = game_copy.init_Q()
     game_copy.last_observed_prices = np.zeros((game_copy.n, game_copy.memory), dtype=int)
 
-    if game_copy.demand_type == 'reference':
+    if game.demand_type in ["reference", "misspecification"]:
         # Initialize reference-related variables
         game_copy.last_observed_reference = np.zeros(1, dtype=int)  # Last reference price
         game_copy.last_reference_observed_prices = np.zeros((game_copy.n, game_copy.reference_memory), dtype=int)
@@ -401,7 +401,7 @@ def run_single_session(game, iSession):
     last_reference_prices = None
     last_observed_demand = None
 
-    if game_copy.demand_type == 'reference':
+    if game.demand_type in ["reference", "misspecification"]:
         last_reference_price = game_copy.last_observed_reference
         last_reference_prices = game_copy.last_reference_observed_prices
         last_observed_demand = game_copy.last_observed_demand
@@ -420,7 +420,7 @@ def run_single_session(game, iSession):
                 'price_history': price_history,
                 'consumer_surplus_history': consumer_surplus_history
             }
-        if game_copy.demand_type == 'reference':
+        if game.demand_type in ["reference", "misspecification"]:
             # Pass iSession to detect_cycle function
             cycle_length, visited_states, visited_profits, price_history, reference_price_history, consumer_surplus_history = detect_cycle(game_copy, iSession)  # Now passing iSession
             cycle_data = {
@@ -432,7 +432,7 @@ def run_single_session(game, iSession):
                 'consumer_surplus_history': consumer_surplus_history
             }
 
-    if game_copy.demand_type == 'reference':
+    if game.demand_type in ["reference", "misspecification"]:
         # Return results
         return {
             'session_id': iSession,
@@ -503,7 +503,7 @@ def run_experiment_parallel(game, alpha_values, beta_values, num_sessions=1000, 
 
 
             # Initialize reference-related arrays if using reference pricing
-            if game.demand_type == 'reference':
+            if game.demand_type in ["reference", "misspecification"]:
                 game.last_observed_reference = np.zeros(1, dtype=int)  # Single last observed reference price
                 game.last_reference_observed_prices = np.zeros((game.n, game.reference_memory), dtype=int)  # Reference prices
                 game.last_observed_demand = np.zeros((game.n, game.reference_memory), dtype=float)  # Demand shares for reference price
@@ -533,7 +533,7 @@ def run_experiment_parallel(game, alpha_values, beta_values, num_sessions=1000, 
                     game.index_strategies[..., iSession] = result['optimal_strategies']
 
                     # If using reference pricing, store reference-related results
-                    if game.demand_type == 'reference':
+                    if game.demand_type in ["reference", "misspecification"]:
                         game.index_last_reference[iSession] = result['last_observed_reference']
 
                     
@@ -545,7 +545,7 @@ def run_experiment_parallel(game, alpha_values, beta_values, num_sessions=1000, 
                         game.cycle_prices[:, :cycle_len, iSession] = cycle_data['price_history']
                         game.cycle_profits[:, :cycle_len, iSession] = cycle_data['visited_profits']
                         game.cycle_consumer_surplus[:cycle_len, iSession] = cycle_data['consumer_surplus_history']
-                        if game.demand_type == 'reference':
+                        if game.demand_type in ["reference", "misspecification"]:
                             game.cycle_reference_prices[:cycle_len, iSession] = cycle_data['reference_price_history']
 
                 # Save results for this alpha-beta combination

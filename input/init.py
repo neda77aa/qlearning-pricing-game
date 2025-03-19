@@ -55,7 +55,7 @@ class model(object):
         self.reference_memory = kwargs.get('reference_memory', 1)
 
         # Get demand_type from kwargs, defaulting to 'noreference'
-        valid_demand_types = {'reference', 'noreference'}  # Allowed values
+        valid_demand_types = {'reference', 'noreference','misspecification'}  # Allowed values
         self.demand_type = kwargs.get('demand_type', 'noreference')
 
         # Validate input
@@ -100,6 +100,8 @@ class model(object):
             self.num_states = self.k ** (self.n * self.memory)
         if self.demand_type == 'reference':
             self.num_states = self.k ** (self.n * self.memory) * self.k 
+        if self.demand_type == 'misspecification':
+            self.num_states = self.k ** (self.n * self.memory)   
 
         self.num_actions = self.k ** self.n
         self.num_periods = self.num_states + 1
@@ -147,7 +149,7 @@ class model(object):
             e = np.exp((self.a - p) / self.mu)
             d = e / (np.sum(e) + np.exp(self.a0 / self.mu))
 
-        elif self.demand_type == 'reference':
+        elif self.demand_type in ["reference", "misspecification"]:
             """
             Logit demand with reference dependence.
 
@@ -195,7 +197,7 @@ class model(object):
         d = self.demand(p)
         if self.demand_type == 'noreference':
             zero = 1 - (p - self.c) * (1 - d) / self.mu
-        if self.demand_type == 'reference':
+        elif self.demand_type in ["reference", "misspecification"]:
             if self.reference_loss_aversion:
                 p_c = p.copy()
                 r  = self.reference_price(p_c)
@@ -218,7 +220,7 @@ class model(object):
 
         if self.demand_type == 'noreference':
             zero = 1 - ((p - self.c) * (1 - d) / self.mu) + ((total_contribution - own_contribution) / self.mu)
-        if self.demand_type == 'reference':
+        elif self.demand_type in ["reference", "misspecification"]:
             if self.reference_loss_aversion:
                 p_c = p.copy()
                 r  = self.reference_price(p_c)
@@ -326,7 +328,7 @@ class model(object):
     def init_state(self):
         """Get state dimension and initial state"""
         """Each Player action space is a grid of k points(prices)"""
-        if self.demand_type == 'noreference':
+        if self.demand_type in ["noreference", "misspecification"]:
             sdim = tuple([self.k] * (self.n * self.memory))
             adim = tuple([self.k] * self.n)
         if self.demand_type == 'reference':
@@ -342,7 +344,7 @@ class model(object):
         
         if self.demand_type == 'noreference':
             d = self.demand(p)  # Demand without reference
-        elif self.demand_type == 'reference':
+        elif self.demand_type in ["reference", "misspecification"]:
             if r is None:
                 r = self.reference_price(p)  # Compute reference price if not provided
             d = self.demand(p, r)  # Demand with reference price
@@ -363,7 +365,7 @@ class model(object):
                 # Convert action index to prices
                 PI[a] = game.compute_profits(p)  # Compute profits
         
-        elif game.demand_type == 'reference':
+        elif game.demand_type in ["reference", "misspecification"]:
             # Profits depend on both prices and reference price
             PI = np.zeros(game.adim + (game.k, game.n))  
             # Shape: (actions, reference price, agents)
@@ -426,7 +428,7 @@ class model(object):
                 # Normalize by the number of possible actions for other agents
                 num_actions_other_agents = np.prod([game.k for _ in other_agents])  # |A|^(n-1)
 
-            elif game.demand_type == 'reference':
+            elif game.demand_type in ["reference", "misspecification"]:
                 # Sum over other agents' actions + reference price
                 pi_summed = np.sum(
                     game.PI.take(indices=n, axis=-1),  # Extract agent n's profits
