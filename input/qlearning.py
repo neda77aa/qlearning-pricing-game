@@ -349,7 +349,7 @@ def detect_cycle(game, session_idx):
         if game.demand_type == 'misspecification':
             reference_price_history[i_period] = r
             # Record current state
-            visited_states[i_period] = compute_state_number(game, p, 1)
+            visited_states[i_period] = compute_state_number(game, p, r)
             # Compute and record profits
             visited_profits[:, i_period] = game.PI[tuple(np.append(p_prime, r))]
         
@@ -402,6 +402,10 @@ def detect_cycle(game, session_idx):
             s = np.append(p.flatten(), r)
             # Get initial optimal actions from current state
             p_prime = game.index_strategies[:, *s, session_idx]
+
+        if game.demand_type == 'misspecification':
+            # Get initial optimal actions from current state
+            p_prime = game.index_strategies[:, *p.flatten(), session_idx]
     
     # If no cycle found, update game parameters with full period data
     game.cycle_length[session_idx] = game.num_periods

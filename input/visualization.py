@@ -237,15 +237,17 @@ def create_comparative_heatmaps(results_dir, experiment_dirs, metric_name="Price
 
     # Create heatmaps
     heatmaps = []  # Store heatmap objects for colorbars
-    colormap_options = [
-        "Blues", "Greens", "Purples", "Oranges", "Reds", "Greys"
-    ]
+    # colormap_options = [
+    #     "Blues", "Greens", "Purples", "Oranges", "Reds", "Greys"
+    # ]
 
-    # Seed random choice to make it consistent for a given metric
-    random.seed(hash(metric_name) % 100)
+    # # Seed random choice to make it consistent for a given metric
+    # random.seed(hash(metric_name) % 100)
 
-    # Pick different random colormaps for the first two heatmaps
-    cmap = random.choice(colormap_options)
+    # # Pick different random colormaps for the first two heatmaps
+    # cmap = random.choice(colormap_options)
+    cmap = 'Reds' if "Gain" in metric_name else ('Blues' if "Profit" in metric_name else ( 'Purples' if "Cycle Length" in metric_name else ( 'YlOrRd' if "Surplus" in metric_name else 'Greens')))
+
 
     for i, (alpha_vals, beta_vals, metric_vals, title, ax, cmap, norm) in enumerate([
         (alpha_noref, beta_noref, metric_noref, f"{metric_name} (No Reference)", ax1, cmap, mcolors.Normalize(vmin=vmin, vmax=vmax)),
@@ -348,11 +350,13 @@ def create_comparative_heatmaps_miss(results_dir, experiment_dirs, metric_name="
     ax4, ax5, ax6 = axes[1]  # Second row: Difference (Ref - NoRef), Difference (Mis - Ref), Empty
 
     # Define colormap options
-    colormap_options = ["Blues", "Greens", "Purples", "Oranges", "Reds", "Greys"]
+    # colormap_options = ["Blues", "Greens", "Purples", "Oranges", "Reds", "Greys"]
 
-    # Pick consistent colormaps based on metric name hash
-    random.seed(hash(metric_name) % 100)
-    cmap = random.choice(colormap_options)  # Random but fixed colormap
+    # # Pick consistent colormaps based on metric name hash
+    # random.seed(hash(metric_name) % 100)
+    # cmap = random.choice(colormap_options)  # Random but fixed colormap
+    cmap = 'Reds' if "Gain" in metric_name else ('Blues' if "Profit" in metric_name else ( 'Purples' if "Cycle Length" in metric_name else ( 'YlOrRd' if "Surplus" in metric_name else 'Greens')))
+
 
     # List of heatmap configurations
     heatmap_data = [
@@ -538,7 +542,7 @@ def create_single_heatmap_gl(results_dir, experiment_name="*", metric_name="Prof
                 gamma_values.append(gamma)
                 lambda_values.append(lambda_)
                 metric_values.append(metric_value)
-                
+                    
         except (IndexError, ValueError) as e:
             print(f"Skipping directory {dir_name} due to parsing error: {e}")
             continue
@@ -673,13 +677,16 @@ def create_comparative_heatmaps_gl(results_dir, experiment_dirs, metric_name="Pr
 
     # Create heatmaps
     heatmaps = []  # Store heatmap objects for colorbars
-    colormap_options = ["Blues", "Greens", "Purples", "Oranges", "Reds", "Greys"]
+    # colormap_options = ["Blues", "Greens", "Purples", "Oranges", "Reds", "Greys"]
 
-    # Seed random choice to make it consistent for a given metric
-    random.seed(hash(metric_name) % 100)
+    # # Seed random choice to make it consistent for a given metric
+    # random.seed(hash(metric_name) % 100)
 
-    # Pick different random colormaps for the first two heatmaps
-    cmap = random.choice(colormap_options)
+    # # Pick different random colormaps for the first two heatmaps
+    # cmap = random.choice(colormap_options)
+    # Set colormap based on metric
+    cmap = 'Reds' if "Gain" in metric_name else ('Blues' if "Profit" in metric_name else ( 'Purples' if "Cycle Length" in metric_name else ( 'YlOrRd' if "Surplus" in metric_name else 'Greens')))
+
 
     for i, (gamma_vals, lambda_vals, metric_vals, title, ax, cmap, norm) in enumerate([
         (gamma_ref, lambda_ref, metric_ref, f"{metric_name} (Reference)", ax1, cmap, mcolors.Normalize(vmin=vmin, vmax=vmax)),
@@ -781,84 +788,131 @@ def extract_metric_data_gl(experiment_dir, metric_name):
 ################################
 # Single figures 
 
-def create_single_heatmap_lossaversion(results_dir, experiment_name="*", metric_name="Profit Gain" ,figsize=(10, 8)):
-    """
-    Creates a heatmap of mean profit gains for a specific player across different alpha and beta values.
-    
-    Parameters:
-    -----------
-    results_dir : str
-        Directory containing experiment results (can be relative or absolute)
-    player_num : int
-        Player number to plot (1, 2, etc.)
-    experiment_name : str
-        Pattern to match specific experiments (default "*" matches all)
-    figsize : tuple
-        Figure size in inches
-    """
+def create_single_heatmap_lossaversion(results_dir, experiment_name="*", metric_name="Profit Gain", figsize=(10, 8)):
+    import matplotlib.pyplot as plt
+    import os
+    import numpy as np
+    import pandas as pd
+    from glob import glob
 
-    # Resolve the full path if a relative path is provided
     results_dir = os.path.abspath(results_dir)
-    
-    # First get the experiment directory
     exp_dir = os.path.join(results_dir, experiment_name)
+
     if not os.path.exists(exp_dir):
         raise ValueError(f"No experiment directory found: {exp_dir}")
-      
-    # Get all alpha-beta directories (including timestamps)
-    pattern = "lossaversion_*"
 
+    pattern = "lossaversion_*"
     run_dirs = glob(os.path.join(exp_dir, pattern))
+
     if not run_dirs:
         raise ValueError(f"No run directories found matching pattern '{pattern}' in {exp_dir}")
-    
 
-    # Extract alpha and beta values from directory names
     lossaversion_values = []
     metric_means = []
     metric_stds = []
-    
+
+    coop_vals = []
+    nash_vals = []
+    diffs = []
+
     for run_dir in run_dirs:
         try:
-            # Extract alpha and beta from directory name
             dir_name = os.path.basename(run_dir)
-            # The format should be "alpha_X_beta_Y_timestamp"
-            lossaversion_str = dir_name.split('lossaversion_')[1]  # Extract everything after "lossaversion_"
-            lossaversion = float(lossaversion_str)  # Convert to float
-            
-            # Read cycle statistics
+            lossaversion_str = dir_name.split('lossaversion_')[1]
+            lossaversion = float(lossaversion_str)
+
             stats_file = os.path.join(run_dir, "cycle_statistics.csv")
             if os.path.exists(stats_file):
                 df = pd.read_csv(stats_file)
 
                 # Extract both mean and std values
-                if metric_name == 'mean_cycle_length':
-                    mean_col = 'mean_cycle_length'
-                    std_col = 'std_cycle_length'
+                if metric_name == 'Cycle Length':
+                    mean_col = ['mean_cycle_length']
+                    std_col = ['std_cycle_length']
+                    if mean_col and std_col:
+                        mean_val = df[mean_col].mean(axis=1).iloc[0]
+                        std_val = df[std_col].mean(axis=1).iloc[0]
+
+                        lossaversion_values.append(lossaversion)
+                        metric_means.append(mean_val)
+                        metric_stds.append(std_val)
+
+                if metric_name == 'FOC':
+                    # Coop and Nash columns for player 1
+                    coop_col = [col for col in df.columns if col.startswith('p_coop_p1')]
+                    nash_col = [col for col in df.columns if col.startswith('p_nash_p1')]
+                    mean_col = [col for col in df.columns if col.startswith(f'mean_price_p')]
+                    std_col = [col for col in df.columns if col.startswith(f'std_price_p')]
+                    if mean_col and std_col:
+                        mean_val = df[mean_col].mean(axis=1).iloc[0]
+                        std_val = df[std_col].mean(axis=1).iloc[0]
+
+                        metric_means.append(mean_val)
+                        metric_stds.append(std_val)
+
+                    if coop_col and nash_col:
+                        coop_val = df[coop_col].iloc[0].values[0]
+                        nash_val = df[nash_col].iloc[0].values[0]
+
+                        lossaversion_values.append(lossaversion)
+                        coop_vals.append(coop_val)
+                        nash_vals.append(nash_val)
+                        diffs.append(coop_val - nash_val)
+
                 else:
                     mean_col = [col for col in df.columns if col.startswith(f'mean_{metric_name.lower().replace(" ", "_")}_p')]
                     std_col = [col for col in df.columns if col.startswith(f'std_{metric_name.lower().replace(" ", "_")}_p')]
+                    if mean_col and std_col:
+                        mean_val = df[mean_col].mean(axis=1).iloc[0]
+                        std_val = df[std_col].mean(axis=1).iloc[0]
 
-
-                # Ensure the lists are not empty before proceeding
-                if mean_col and std_col:
-                    # Compute the mean across all player columns
-                    mean_value = df[mean_col].mean(axis=1).iloc[0]  # Average across players
-                    std_value = df[std_col].mean(axis=1).iloc[0]  # Standard deviation across players
-
-                    lossaversion_values.append(lossaversion)
-                    metric_means.append(mean_value)
-                    metric_stds.append(std_value)
-        except (IndexError, ValueError) as e:
-            print(f"Skipping directory {dir_name} due to parsing error: {e}")
+                        lossaversion_values.append(lossaversion)
+                        metric_means.append(mean_val)
+                        metric_stds.append(std_val)
+        except Exception as e:
+            print(f"Skipping {run_dir}: {e}")
             continue
-    
+
     if not lossaversion_values:
-        raise ValueError("No valid data found to create heatmap")
-    
-    # Create and return the heatmap
-    fig = _create_heatmap_lossaversion(lossaversion_values, metric_means, metric_stds, metric_name, figsize)
-    return fig
+        raise ValueError("No valid data found to plot")
+
+    # Convert and sort
+    lossaversion_values = np.array(lossaversion_values)
+    sort_idx = np.argsort(lossaversion_values)
+    lossaversion_values = lossaversion_values[sort_idx]
+
+    if metric_name == 'FOC':
+        coop_vals = np.array(coop_vals)[sort_idx]
+        nash_vals = np.array(nash_vals)[sort_idx]
+        metric_means = np.array(metric_means)[sort_idx]
+        metric_stds = np.array(metric_stds)[sort_idx]
+        diffs = np.array(diffs)[sort_idx]
+
+        # Plot Nash, Coop, and their difference
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.plot(lossaversion_values, nash_vals, label='Nash Price', color='blue', marker='o')
+        ax.plot(lossaversion_values, coop_vals, label='Coop Price', color='green', marker='o')
+        #ax.plot(lossaversion_values, diffs, label='Difference (Coop - Nash)', color='red', linestyle='--', marker='x')
+        ax.plot(lossaversion_values, metric_means, marker='o', linestyle='-', color='black', label='Price')
+        # Add standard deviation shading if available
+        if metric_stds is not None:
+            ax.fill_between(lossaversion_values, metric_means - metric_stds, metric_means + metric_stds, 
+                            color='black', alpha=0.2, label=f"Price ± std")
+
+        ax.set_xlabel(r'Loss Aversion')
+        ax.set_ylabel("Price Level")
+        ax.set_title("Nash vs Coop Prices vs Loss Aversion")
+        ax.grid(True, linestyle='--', alpha=0.6)
+        ax.legend()
+        return fig
+
+    else:
+        # Normal metric
+        metric_means = np.array(metric_means)[sort_idx]
+        metric_stds = np.array(metric_stds)[sort_idx] if metric_stds else None
+        return _create_heatmap_lossaversion(lossaversion_values, metric_means, metric_stds, metric_name, figsize)
+
+
 
 
 
@@ -919,7 +973,7 @@ def _create_heatmap_lossaversion(lossaversion_values, data_means, data_stds=None
                         color=color, alpha=0.2, label=f"{metric_name} ± std")
 
     # Set labels and title
-    ax.set_xlabel(r'$\lambda$ (Loss Aversion)')
+    ax.set_xlabel(r'Loss Aversion')
     ax.set_ylabel(metric_name)
     ax.set_title(f'{metric_name} vs Loss Aversion')
 

@@ -770,10 +770,6 @@ def run_experiment_parallel_lossaversion(game, lossaversion_values, num_sessions
         run_dir = os.path.join("../Results/experiments", experiment_name, f"lossaversion_{lossaversion}")
         stats_file = os.path.join(run_dir, "cycle_statistics.csv")
 
-        if os.path.exists(stats_file):
-            print(f"lossaversion_{lossaversion} (already exists in {run_dir})")
-            continue  # Skip already completed experiments
-
         # Update game parameters
         game.alpha = alpha_fixed
         game.beta = beta_fixed
@@ -787,6 +783,26 @@ def run_experiment_parallel_lossaversion(game, lossaversion_values, num_sessions
         game.num_sessions = num_sessions
         game.demand_type = demand_type
         
+        if os.path.exists(stats_file):
+            print(f"lossaversion_{lossaversion} (already exists in {run_dir})")
+            # Load existing stats
+            df = pd.read_csv(stats_file)
+
+            # Only add p_nash and p_coop if not already present
+            if 'p_nash_p1' not in df.columns:
+                for i, val in enumerate(game.p_nash):
+                    df[f'p_nash_p{i+1}'] = val
+                for i, val in enumerate(game.p_coop):
+                    df[f'p_coop_p{i+1}'] = val
+
+                df.to_csv(stats_file, index=False)
+                print(f"Added p_nash and p_coop per player to {stats_file}")
+
+            else:
+                print("p_nash and p_coop already present.")
+            continue  # Skip running simulation again
+
+
         # Initialize arrays for results
         game.converged = np.zeros(game.num_sessions, dtype=bool)
         game.time_to_convergence = np.zeros(game.num_sessions, dtype=float)

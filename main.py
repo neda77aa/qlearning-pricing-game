@@ -160,12 +160,14 @@ if __name__ == '__main__':
         # game = run_experiment_lossaversion(game, lossaversion_values, num_sessions= num_sessions, experiment_name = experiment_name, demand_type = demand_type)
 
         # Or specify number of processes
-        game = run_experiment_parallel_lossaversion(game, lossaversion_values, num_sessions=num_sessions, experiment_name = experiment_name, demand_type = demand_type, num_processes=4)
+        # game = run_experiment_parallel_lossaversion(game, lossaversion_values, num_sessions=num_sessions, experiment_name = experiment_name, demand_type = demand_type, num_processes=4)
 
         # Generate heatmaps
         fig_profit = create_single_heatmap_lossaversion("../Results/experiments",  experiment_name=experiment_name, metric_name="Profit")
         fig_price_gain = create_single_heatmap_lossaversion("../Results/experiments", experiment_name=experiment_name, metric_name="Price Gain")
         fig_price = create_single_heatmap_lossaversion("../Results/experiments", experiment_name=experiment_name, metric_name="Price")
+        fig_cycle = create_single_heatmap_lossaversion("../Results/experiments", experiment_name=experiment_name, metric_name="Cycle Length")
+        fig_foc = create_single_heatmap_lossaversion("../Results/experiments", experiment_name=experiment_name, metric_name="FOC")
         # Create "Figures" directory
         figures_dir = os.path.join("../Results/experiments", experiment_name, "Figures")
         os.makedirs(figures_dir, exist_ok=True)
@@ -174,7 +176,8 @@ if __name__ == '__main__':
         fig_profit.savefig(os.path.join(figures_dir, "profit_heatmap.png"))
         fig_price_gain.savefig(os.path.join(figures_dir, "price_gain_heatmap.png"))
         fig_price.savefig(os.path.join(figures_dir, "price_heatmap.png"))
-
+        fig_cycle.savefig(os.path.join(figures_dir, "cycle_length.png"))
+        fig_foc.savefig(os.path.join(figures_dir, "nash_coop.png"))
     #################################################
     # generating lossaversion figures
     if Desired_Experiment == 'misspecification':
@@ -194,7 +197,7 @@ if __name__ == '__main__':
             experiment_dirs = {}
 
 
-            for demand_type in ['noreference', 'reference', 'misspecification']:
+            for demand_type in ['misspecification']:  ##['noreference', 'reference', 'misspecification']:
                 experiment_name = experiment_base_name + "_" + demand_type
 
                 game = model(n=2, k = 15, memory = 1,alpha=0.0075, beta=0.01/25000, num_sessions = num_sessions, aprint = aprint, demand_type = demand_type)
@@ -203,7 +206,7 @@ if __name__ == '__main__':
                 # game = run_experiment(game, alpha_values, beta_values, num_sessions= num_sessions, experiment_name = experiment_name, demand_type = demand_type)
 
                 # Or specify number of processes
-                #game = run_experiment_parallel(game, alpha_values, beta_values, num_sessions=num_sessions, experiment_name = experiment_name, demand_type = demand_type, num_processes=6)
+                game = run_experiment_parallel(game, alpha_values, beta_values, num_sessions=num_sessions, experiment_name = experiment_name, demand_type = demand_type, num_processes=6)
                 # Store experiment directory
                 experiment_dirs[demand_type] = os.path.join("../Results/experiments", experiment_name)
 
@@ -240,8 +243,8 @@ if __name__ == '__main__':
         if test == 'gamma_lambda':
             # Define parameter ranges to test
             gamma_values = np.linspace(0, 3, 25)  
-            lambda_values = np.linspace(0.1, 0.9, 25)   
-
+            #lambda_values = np.linspace(0, 0.9, 25)
+            lambda_values = np.array([0, 0.0333334, 0.0666667])
             experiment_base_name =  "reference_impact_misspecification/gamma_lambda"
             num_sessions = 16
             aprint = True
@@ -259,7 +262,7 @@ if __name__ == '__main__':
                 # game = run_experiment_gl(game, gamma_values, lambda_values, num_sessions= num_sessions, experiment_name = experiment_name, demand_type = demand_type)
 
                 # Or specify number of processes
-                game = run_experiment_parallel_gl(game, gamma_values, lambda_values, num_sessions=num_sessions, experiment_name = experiment_name, demand_type = demand_type, num_processes=8)
+                #game = run_experiment_parallel_gl(game, gamma_values, lambda_values, num_sessions=num_sessions, experiment_name = experiment_name, demand_type = demand_type, num_processes=8)
                 # Store experiment directory
                 experiment_dirs[demand_type] = os.path.join("../Results/experiments", experiment_name)
 
@@ -279,15 +282,17 @@ if __name__ == '__main__':
                 fig_cycle.savefig(os.path.join(figures_dir, "cyclelength_heatmap.png"))
         
         
-        figures_dir = os.path.join("../Results/experiments", experiment_base_name, "Figures")
-        os.makedirs(figures_dir, exist_ok=True)
-        # Run side-by-side heatmaps for price, profit, and cycle length
-        fig1 = create_comparative_heatmaps_gl("../Results/experiments", experiment_dirs, metric_name="Price")
-        fig2 = create_comparative_heatmaps_gl("../Results/experiments", experiment_dirs, metric_name="Profit")
-        fig3 = create_comparative_heatmaps_gl("../Results/experiments", experiment_dirs, metric_name="Surplus")
-        fig4 = create_comparative_heatmaps_gl("../Results/experiments", experiment_dirs, metric_name="Cycle Length")
+            figures_dir = os.path.join("../Results/experiments", experiment_base_name, "Figures")
+            os.makedirs(figures_dir, exist_ok=True)
+            # Run side-by-side heatmaps for price, profit, and cycle length
+            fig1 = create_comparative_heatmaps_gl("../Results/experiments", experiment_dirs, metric_name="Price")
+            fig2 = create_comparative_heatmaps_gl("../Results/experiments", experiment_dirs, metric_name="Profit")
+            fig3 = create_comparative_heatmaps_gl("../Results/experiments", experiment_dirs, metric_name="Surplus")
+            fig4 = create_comparative_heatmaps_gl("../Results/experiments", experiment_dirs, metric_name="Cycle Length")
+            fig5 = create_comparative_heatmaps_gl("../Results/experiments", experiment_dirs, metric_name="Price Gain")
 
-        fig1.savefig(os.path.join(figures_dir, "price_dual_heatmap.png"))
-        fig2.savefig(os.path.join(figures_dir, "profit_dual_heatmap.png"))
-        fig3.savefig(os.path.join(figures_dir, "consumer_surplus_dual_heatmap.png"))
-        fig4.savefig(os.path.join(figures_dir, "cyclelength_dual_heatmap.png"))
+            fig1.savefig(os.path.join(figures_dir, "price_dual_heatmap.png"))
+            fig2.savefig(os.path.join(figures_dir, "profit_dual_heatmap.png"))
+            fig3.savefig(os.path.join(figures_dir, "consumer_surplus_dual_heatmap.png"))
+            fig4.savefig(os.path.join(figures_dir, "cyclelength_dual_heatmap.png"))
+            fig5.savefig(os.path.join(figures_dir, "price_gain_dual_heatmap.png"))
