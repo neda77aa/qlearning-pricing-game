@@ -53,6 +53,8 @@ class model(object):
         self.k = kwargs.get('k', 15) # number of discrete prices
         self.memory = kwargs.get('memory', 1)
         self.reference_memory = kwargs.get('reference_memory', 1)
+        self.common_reference = kwargs.get('common_reference', True)
+
 
         # Get demand_type from kwargs, defaulting to 'noreference'
         valid_demand_types = {'reference', 'noreference','misspecification'}  # Allowed values
@@ -61,7 +63,8 @@ class model(object):
         # Validate input
         if self.demand_type not in valid_demand_types:
             raise ValueError(f"Invalid demand_type: {self.demand_type}. Allowed values: {valid_demand_types}")
-        self.ref_type = "average"
+        
+        self.ref_prediction  = "qlearning"
 
         # if lossaversion coefficient is larger than 1 we will go with the loss aversion approach
         if self.lossaversion>1:
@@ -107,39 +110,40 @@ class model(object):
         self.num_periods = self.num_states + 1
 
         # Game logs 
+        if self.common_reference:
+            ref_shape = (1,)  # single common reference price
+        else:
+            ref_shape = (self.n,)  # each firm has its own reference price
         # Initialize all the variables with zeros
         self.converged = np.zeros(self.num_sessions, dtype=bool)  # Convergence status
         self.time_to_convergence = np.zeros(self.num_sessions, dtype=float)  # Time to convergence
         # Initialize with same shape as Q but without the last axis (k)
         self.index_strategies = np.zeros((self.n,) + self.sdim + (self.num_sessions,), dtype=int)
         self.index_last_state = np.zeros((self.n, self.memory, self.num_sessions), dtype=int)  # Last states
-        self.index_last_reference = np.zeros((1, self.num_sessions),  dtype=int)
+        self.index_last_reference = np.zeros(ref_shape + (self.num_sessions,), dtype=int)
         self.cycle_length = np.zeros(self.num_sessions, dtype=int)  # Cycle length
         self.cycle_states = np.zeros((self.num_periods, self.num_sessions), dtype=int)  # Cycle states
         self.cycle_prices = np.zeros((self.n, self.num_periods, self.num_sessions), dtype=float)  # Cycle prices
-        self.cycle_reference_prices = np.zeros((self.num_periods, self.num_sessions), dtype=float)  # Cycle ref prices
+        self.cycle_reference_prices = np.zeros(ref_shape + (self.num_periods, self.num_sessions), dtype=float)
         self.cycle_consumer_surplus = np.zeros((self.num_periods, self.num_sessions), dtype=float)  # Cycle consumer surplus
         self.cycle_profits = np.zeros((self.n, self.num_periods, self.num_sessions), dtype=float)  # Cycle profits
         self.index_actions = np.zeros((self.num_actions, self.n), dtype=int)  # Action indices
         self.profit_gains = np.zeros((self.num_actions, self.n), dtype=float)  # Profit gains
         self.last_observed_prices = np.zeros((self.n, self.memory), dtype=int)  # last prices
-        self.last_observed_reference = np.zeros(1, dtype=int)  # last prices
+        self.last_observed_reference = np.zeros(ref_shape, dtype=int)
         self.last_reference_observed_prices = np.zeros((self.n, self.reference_memory), dtype=int)  # last prices
         self.last_observed_demand = np.zeros((self.n, self.reference_memory), dtype=float)  # last shares for each firm
+        self.price_history = np.zeros((self.n, 0), dtype=int)  # shape (n_firms, periods)
 
     def reference_price(self, p):
         """
         Compute the reference price `r` based on all firms' prices.
         Default: Simple average of all prices.
         """
-        if self.ref_type == "average":
+        if self.common_reference:
             return np.mean(p)  # Average price
-        elif self.ref_type == "min":
-            return np.min(p)  # Minimum price (e.g., price leader effect)
-        elif self.ref_type == "max":
-            return np.max(p)  # Maximum price (e.g., anchoring effect)
         else:
-            raise ValueError("Invalid ref_type. Choose from 'average', 'min', 'max'.")
+            return p 
     
     ### Calculating demand function 
     def demand(self, p, r=None):
@@ -316,7 +320,6 @@ class model(object):
         # Ensure bounds are non-negative
         lower_bound = np.maximum(0, lower_bound)
         upper_bound = np.maximum(0, upper_bound)
-
         # Create the price grid for each agent
         A = np.linspace(lower_bound, upper_bound, self.k)
 
@@ -332,8 +335,12 @@ class model(object):
             sdim = tuple([self.k] * (self.n * self.memory))
             adim = tuple([self.k] * self.n)
         if self.demand_type == 'reference':
-            # State space includes both past prices and a reference price
-            sdim = tuple([self.k] * (self.n * self.memory)) + (self.k,)  # Last value for reference price
+            if self.common_reference:
+                # Single common reference price for all firms
+                sdim = tuple([self.k] * (self.n * self.memory)) + (self.k,)  
+            else:
+                # Each firm has its own reference price
+                sdim = tuple([self.k] * (self.n * self.memory)) + tuple([self.k] * self.n)
             adim = tuple([self.k] * (self.n))
        
         s0 = np.zeros(len(sdim)).astype(int)
@@ -358,23 +365,25 @@ class model(object):
         """Initialize Profits (actions x reference prices x agents)"""
         
         if game.demand_type == 'noreference':
-            # Profits depend only on prices (adim, n)
             PI = np.zeros(game.adim + (game.n,))
-            for a in product(*[range(i) for i in game.adim]):  # Iterate over actions
-                p = np.asarray(game.A[np.asarray(a)])  # Convert action indices to prices
-                # Convert action index to prices
-                PI[a] = game.compute_profits(p)  # Compute profits
-        
-        elif game.demand_type in ["reference", "misspecification"]:
-            # Profits depend on both prices and reference price
-            PI = np.zeros(game.adim + (game.k, game.n))  
-            # Shape: (actions, reference price, agents)
+            for a in product(*[range(i) for i in game.adim]):
+                p = np.asarray(game.A[np.asarray(a)])
+                PI[a] = game.compute_profits(p)
 
-            for a in product(*[range(i) for i in game.adim]):  # Iterate over all actions
-                p = np.asarray(game.A[np.asarray(a)])  # Convert action indices to prices
-                
-                for r_idx, r in enumerate(game.R):  # Iterate over actual reference prices
-                    PI[a + (r_idx,)] = game.compute_profits(p, r)  # Compute profits
+        elif game.demand_type in ["reference", "misspecification"]:
+            if game.common_reference:
+                PI = np.zeros(game.adim + (game.k, game.n))
+                for a in product(*[range(i) for i in game.adim]):
+                    p = np.asarray(game.A[np.asarray(a)])
+                    for r_idx, r in enumerate(game.R):
+                        PI[a + (r_idx,)] = game.compute_profits(p, r)
+            else:
+                PI = np.zeros(game.adim + tuple([game.k]*game.n) + (game.n,))
+                for a in product(*[range(i) for i in game.adim]):
+                    p = np.asarray(game.A[np.asarray(a)])
+                    for r_idx in product(range(game.k), repeat=game.n):
+                        r = np.asarray(game.R)[np.asarray(r_idx)]
+                        PI[a + r_idx] = game.compute_profits(p, r)
         return PI
     
     def init_PG(game):
@@ -407,37 +416,38 @@ class model(object):
         return profit_gain
 
     def init_Q(game):
-        """Initialize Q function (n x #s x k)"""
+        """Initialize Q function (n x #states x k)"""
         Q = np.zeros((game.n,) + game.sdim + (game.k,))
+        
         for n in range(game.n):
-            # pi = np.mean(game.PI[:, :, n], axis=1 - n)
-            # Q[n] = np.tile(pi, game.sdim + (1,)) / (1 - game.delta)
-
-            # Define other agents (all agents except n)
             other_agents = [i for i in range(game.n) if i != n]
 
-            # **Handle reference price**
+            # No reference price scenario
             if game.demand_type == 'noreference':
-                
-                # Compute expected profits by summing over other agents' actions
                 pi_summed = np.sum(
-                    game.PI.take(indices=n, axis=-1),  # Select profits for agent n
-                    axis=tuple([j for j in other_agents])  # Sum over other agents
+                    game.PI.take(indices=n, axis=-1),
+                    axis=tuple(other_agents)
                 )
+                num_actions_other_agents = np.prod([game.k for _ in other_agents])
 
-                # Normalize by the number of possible actions for other agents
-                num_actions_other_agents = np.prod([game.k for _ in other_agents])  # |A|^(n-1)
-
+            # Reference price scenario
             elif game.demand_type in ["reference", "misspecification"]:
-                # Sum over other agents' actions + reference price
-                pi_summed = np.sum(
-                    game.PI.take(indices=n, axis=-1),  # Extract agent n's profits
-                    axis=tuple(other_agents) + (-1,)  # Sum over all other agents' actions + reference price
-                )
-                num_actions_other_agents = np.prod([game.k for _ in other_agents]) * game.k  # Normalize for reference
+                if game.common_reference:
+                    # Single common reference price
+                    pi_summed = np.sum(
+                        game.PI.take(indices=n, axis=-1),
+                        axis=tuple(other_agents) + (-1,)  # sum over all other agents + single reference price dimension
+                    )
+                    num_actions_other_agents = np.prod([game.k for _ in other_agents]) * game.k  # k possible references
+                else:
+                    # Individual reference prices for each firm
+                    pi_summed = np.sum(
+                        game.PI.take(indices=n, axis=-1),
+                        axis=tuple(other_agents) + tuple(range(game.n, 2*game.n))  # Sum over other agents' refs
+                    )
+                    # number of actions for other agents * their individual reference prices
+                    num_actions_other_agents = np.prod([game.k for _ in other_agents]) * (game.k ** (game.n))
 
-            # Normalize Q-values
             Q[n] = pi_summed / ((1 - game.delta) * num_actions_other_agents)
-                
+
         return Q
-    

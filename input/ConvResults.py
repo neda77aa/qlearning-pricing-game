@@ -98,11 +98,18 @@ class ExperimentSaver:
                 consumer_surplus = game.cycle_consumer_surplus[:cycle_len, i_session]  # Extract CS
 
 
-                # If reference pricing is enabled, store reference prices
                 if game.demand_type in ["reference", "misspecification"]:
-                    reference_prices = game.cycle_reference_prices[:cycle_len, i_session]  # Extract ref prices
-                    reference_prices_str = ','.join([f"{r:.5g}" for r in reference_prices])  # Format as string
-                    reference_prices_list.append(reference_prices_str)
+                    # ↳ change this block
+                    if game.common_reference:
+                        ref_slice = game.cycle_reference_prices[0, :cycle_len, i_session]
+                        reference_prices_list.append(','.join(f"{r:.5g}" for r in ref_slice))
+                    else:
+                        # one string per firm, separated by ‘;’
+                        firm_strings = []
+                        for f in range(game.n):
+                            ref_slice = game.cycle_reference_prices[f, :cycle_len, i_session]
+                            firm_strings.append(','.join(f"{r:.5g}" for r in ref_slice))
+                        reference_prices_list.append(';'.join(firm_strings))
                 
                 # Convert arrays to strings with comma separation, formatting to 5 digits
                 prices_str = ','.join([f"{p:.5g}" for p in prices])
@@ -147,11 +154,15 @@ class ExperimentSaver:
         mean_prices = np.zeros((game.n, game.num_sessions))
         mean_consumer_surplus = np.zeros(game.num_sessions)
 
-        # If using reference pricing, store reference price statistics
         if game.demand_type in ["reference", "misspecification"]:
-            mean_reference_prices = np.zeros(game.num_sessions)
-            std_reference_prices = np.zeros(game.num_sessions)
-        
+            if game.common_reference:
+                mean_reference_prices = np.zeros(game.num_sessions)
+                std_reference_prices  = np.zeros(game.num_sessions)
+            else:
+                mean_reference_prices = np.zeros((game.n, game.num_sessions))
+                std_reference_prices  = np.zeros((game.n, game.num_sessions))
+
+                
         for i_session in range(game.num_sessions):
             cycle_len = game.cycle_length[i_session]
             # Compute mean consumer surplus
@@ -166,15 +177,20 @@ class ExperimentSaver:
                 mean_prices[i_player, i_session] = np.mean(actual_prices)
                 price_gains[i_player, i_session] = (mean_prices[i_player, i_session] - game.p_nash[i_player]) / (game.p_coop[i_player] - game.p_nash[i_player])
                
-            # Compute reference price statistics
-            if game.demand_type in ["reference", "misspecification"]:
-                reference_prices = np.asarray(game.A[np.asarray(game.cycle_reference_prices[:cycle_len, i_session], dtype=int)]) # Extract reference prices
-                mean_reference_prices[i_session] = np.mean(reference_prices)
-                std_reference_prices[i_session] = np.std(reference_prices)
+                if game.demand_type in ["reference", "misspecification"]:
+                    if game.common_reference:
+                        ref = game.cycle_reference_prices[0, :cycle_len, i_session]
+                        ref = game.A[ref.astype(int)]
+                        mean_reference_prices[i_session] = ref.mean()
+                        std_reference_prices[i_session]  = ref.std()
+                    else:
+                        for f in range(game.n):
+                            ref = game.cycle_reference_prices[f, :cycle_len, i_session]
+                            ref = game.A[ref.astype(int)]
+                            mean_reference_prices[f, i_session] = ref.mean()
+                            std_reference_prices[f,  i_session] = ref.std()
 
-                # Convert reference prices to string format and store
-                ref_prices_str = ','.join([f"{p:.5g}" for p in reference_prices])
-        
+                        
 
         # Calculate statistics
         cycle_stats = {
@@ -204,12 +220,19 @@ class ExperimentSaver:
             })
 
         
-        # Add reference price statistics if applicable
         if game.demand_type in ["reference", "misspecification"]:
-            cycle_stats.update({
-                'mean_reference_price': f"{np.nanmean(mean_reference_prices):.5g}",
-                'std_reference_price': f"{np.nanstd(mean_reference_prices):.5g}"
-            })
+            if game.common_reference:
+                cycle_stats.update({
+                    'mean_reference_price': f"{np.nanmean(mean_reference_prices):.5g}",
+                    'std_reference_price' : f"{np.nanstd(std_reference_prices):.5g}",
+                })
+            else:
+                for f in range(game.n):
+                    cycle_stats.update({
+                        f'mean_reference_price_p{f+1}': f"{np.nanmean(mean_reference_prices[f]):.5g}",
+                        f'std_reference_price_p{f+1}' : f"{np.nanstd(std_reference_prices[f]):.5g}",
+                    })
+
 
         df_stats = pd.DataFrame([cycle_stats])
         df_stats.to_csv(os.path.join(run_dir, "cycle_statistics.csv"), index=False)
@@ -266,23 +289,28 @@ def run_experiment(game, alpha_values, beta_values, num_sessions=1000, demand_ty
             game.num_sessions = num_sessions
             game.demand_type = demand_type
             
+            # Game logs 
+            if game.common_reference:
+                ref_shape = (1,)  # single common reference price
+            else:
+                ref_shape = (game.n,)  # each firm has its own reference price
             # Reset and initialize game arrays for the new experiment
             game.converged = np.zeros(game.num_sessions, dtype=bool)
             game.time_to_convergence = np.zeros(game.num_sessions, dtype=float)
             game.index_last_state = np.zeros((game.n, game.memory, game.num_sessions), dtype=int)
+            game.index_last_reference = np.zeros(ref_shape + (game.num_sessions,), dtype=int)
             game.cycle_length = np.zeros(game.num_sessions, dtype=int)
             game.cycle_states = np.zeros((game.num_periods, game.num_sessions), dtype=int)
             game.cycle_prices = np.zeros((game.n, game.num_periods, game.num_sessions), dtype=float)
             game.cycle_profits = np.zeros((game.n, game.num_periods, game.num_sessions), dtype=float)
-            game.cycle_reference_prices = np.zeros((game.num_periods, game.num_sessions), dtype=float)  # Cycle prices
+            game.cycle_reference_prices = np.zeros(ref_shape + (game.num_periods, game.num_sessions), dtype=float)
             game.cycle_consumer_surplus = np.zeros((game.num_periods, game.num_sessions), dtype=float) 
             game.index_strategies = np.zeros((game.n,) + game.sdim + (game.num_sessions,), dtype=int)
             game.last_observed_prices = np.zeros((game.n, game.memory), dtype=int)  # last prices
-            game.last_observed_reference = np.zeros(1, dtype=int)  # last prices
+            game.last_observed_reference = np.zeros(ref_shape, dtype=int)
             game.last_reference_observed_prices = np.zeros((game.n, game.reference_memory), dtype=int)  # last prices
             game.last_observed_demand = np.zeros((game.n, game.reference_memory), dtype=float)  # last shares for each firm
-            game.index_last_reference = np.zeros((game.num_sessions,), dtype=int)  # Store last reference price
-
+            
 
             # Run all sessions for this alpha-beta combination
             for iSession in range(game.num_sessions):
@@ -292,10 +320,6 @@ def run_experiment(game, alpha_values, beta_values, num_sessions=1000, demand_ty
 
                 game.Q = game.init_Q()  # Reset Q-values
                 game.last_observed_prices = np.zeros((game.n, game.memory), dtype=int)  # Reset prices
-
-                if game.demand_type in ["reference", "misspecification"]:
-                    game.last_reference_observed_prices = np.zeros((game.n, game.reference_memory), dtype=int)  # last prices
-                    game.last_observed_demand = np.zeros((game.n, game.reference_memory), dtype=float)  # last shares for each firm
 
 
                 # Run Q-learning for this session
@@ -312,7 +336,7 @@ def run_experiment(game, alpha_values, beta_values, num_sessions=1000, demand_ty
                 game.index_strategies[..., iSession] = game.Q.argmax(axis=-1)
 
                 if game.demand_type in ["reference", "misspecification"]:
-                    game.index_last_reference[iSession] = game.last_observed_reference
+                    game.index_last_reference[:, iSession] = game.last_observed_reference
 
 
                 # If converged, analyze post-convergence cycles
@@ -355,7 +379,7 @@ def run_experiment(game, alpha_values, beta_values, num_sessions=1000, demand_ty
 
 ## Parallel Computing Section
 
-def run_single_session(game, iSession):
+def run_single_session(game, alpha, beta, iSession):
     """
     Run a single session of the game
     
@@ -370,6 +394,35 @@ def run_single_session(game, iSession):
     --------
     dict : Session results
     """
+    # Create a deep copy of game to avoid shared state issue
+
+    # # Update game parameters
+    game.alpha = alpha
+    game.beta = beta
+
+    # Game logs 
+    if game.common_reference:
+        ref_shape = (1,)  # single common reference price
+    else:
+        ref_shape = (game.n,)  # each firm has its own reference price
+    # Reset and initialize game arrays for the new experiment
+    game.converged = np.zeros(game.num_sessions, dtype=bool)
+    game.time_to_convergence = np.zeros(game.num_sessions, dtype=float)
+    game.index_last_state = np.zeros((game.n, game.memory, game.num_sessions), dtype=int)
+    game.index_last_reference = np.zeros(ref_shape + (game.num_sessions,), dtype=int)
+    game.cycle_length = np.zeros(game.num_sessions, dtype=int)
+    game.cycle_states = np.zeros((game.num_periods, game.num_sessions), dtype=int)
+    game.cycle_prices = np.zeros((game.n, game.num_periods, game.num_sessions), dtype=float)
+    game.cycle_profits = np.zeros((game.n, game.num_periods, game.num_sessions), dtype=float)
+    game.cycle_reference_prices = np.zeros(ref_shape + (game.num_periods, game.num_sessions), dtype=float)
+    game.cycle_consumer_surplus = np.zeros((game.num_periods, game.num_sessions), dtype=float) 
+    game.index_strategies = np.zeros((game.n,) + game.sdim + (game.num_sessions,), dtype=int)
+    game.last_observed_prices = np.zeros((game.n, game.memory), dtype=int)  # last prices
+    game.last_observed_reference = np.zeros(ref_shape, dtype=int)
+    game.last_reference_observed_prices = np.zeros((game.n, game.reference_memory), dtype=int)  # last prices
+    game.last_observed_demand = np.zeros((game.n, game.reference_memory), dtype=float)  # last shares for each firm
+    
+
     # Create a deep copy of game to avoid shared state issues
     game_copy = copy.deepcopy(game)
     
@@ -379,7 +432,8 @@ def run_single_session(game, iSession):
 
     if game.demand_type in ["reference", "misspecification"]:
         # Initialize reference-related variables
-        game_copy.last_observed_reference = np.zeros(1, dtype=int)  # Last reference price
+        game_copy.last_observed_reference = np.zeros(1 if game_copy.common_reference
+                                             else game_copy.n, dtype=int)
         game_copy.last_reference_observed_prices = np.zeros((game_copy.n, game_copy.reference_memory), dtype=int)
         game_copy.last_observed_demand = np.zeros((game_copy.n, game_copy.reference_memory), dtype=float)
 
@@ -486,29 +540,28 @@ def run_experiment_parallel(game, alpha_values, beta_values, num_sessions=1000, 
             game.num_sessions = num_sessions
             game.demand_type = demand_type
             
-            # Initialize arrays for results
+            # Game logs 
+            if game.common_reference:
+                ref_shape = (1,)  # single common reference price
+            else:
+                ref_shape = (game.n,)  # each firm has its own reference price
+            # Reset and initialize game arrays for the new experiment
             game.converged = np.zeros(game.num_sessions, dtype=bool)
             game.time_to_convergence = np.zeros(game.num_sessions, dtype=float)
             game.index_last_state = np.zeros((game.n, game.memory, game.num_sessions), dtype=int)
+            game.index_last_reference = np.zeros(ref_shape + (game.num_sessions,), dtype=int)
             game.cycle_length = np.zeros(game.num_sessions, dtype=int)
             game.cycle_states = np.zeros((game.num_periods, game.num_sessions), dtype=int)
             game.cycle_prices = np.zeros((game.n, game.num_periods, game.num_sessions), dtype=float)
             game.cycle_profits = np.zeros((game.n, game.num_periods, game.num_sessions), dtype=float)
-            game.cycle_reference_prices = np.zeros((game.num_periods, game.num_sessions), dtype=float)  # Cycle prices
+            game.cycle_reference_prices = np.zeros(ref_shape + (game.num_periods, game.num_sessions), dtype=float)
             game.cycle_consumer_surplus = np.zeros((game.num_periods, game.num_sessions), dtype=float) 
             game.index_strategies = np.zeros((game.n,) + game.sdim + (game.num_sessions,), dtype=int)
-            game.last_observed_reference = np.zeros(1, dtype=int)  # last prices
+            game.last_observed_prices = np.zeros((game.n, game.memory), dtype=int)  # last prices
+            game.last_observed_reference = np.zeros(ref_shape, dtype=int)
             game.last_reference_observed_prices = np.zeros((game.n, game.reference_memory), dtype=int)  # last prices
             game.last_observed_demand = np.zeros((game.n, game.reference_memory), dtype=float)  # last shares for each firm
-
-
-            # Initialize reference-related arrays if using reference pricing
-            if game.demand_type in ["reference", "misspecification"]:
-                game.last_observed_reference = np.zeros(1, dtype=int)  # Single last observed reference price
-                game.last_reference_observed_prices = np.zeros((game.n, game.reference_memory), dtype=int)  # Reference prices
-                game.last_observed_demand = np.zeros((game.n, game.reference_memory), dtype=float)  # Demand shares for reference price
-                game.index_last_reference = np.zeros((game.num_sessions,), dtype=int)  # Store last reference price
-
+         
             #if game.aprint:
             print(f"\nStarting alpha={alpha}, beta={beta} with {num_processes} processes")
             
@@ -517,7 +570,7 @@ def run_experiment_parallel(game, alpha_values, beta_values, num_sessions=1000, 
                 with mp.Pool(processes=num_processes) as pool:
                     session_results = []
                     for iSession in range(num_sessions):
-                        result = pool.apply_async(run_single_session, args=(game, iSession))
+                        result = pool.apply_async(run_single_session, args=(game, alpha, beta, iSession))
                         session_results.append(result)
                     
                     # Collect results with timeout
@@ -534,7 +587,7 @@ def run_experiment_parallel(game, alpha_values, beta_values, num_sessions=1000, 
 
                     # If using reference pricing, store reference-related results
                     if game.demand_type in ["reference", "misspecification"]:
-                        game.index_last_reference[iSession] = result['last_observed_reference']
+                        game.index_last_reference[:, iSession] = result['last_observed_reference']
 
                     
                     if result['cycle_data'] is not None:
@@ -546,7 +599,7 @@ def run_experiment_parallel(game, alpha_values, beta_values, num_sessions=1000, 
                         game.cycle_profits[:, :cycle_len, iSession] = cycle_data['visited_profits']
                         game.cycle_consumer_surplus[:cycle_len, iSession] = cycle_data['consumer_surplus_history']
                         if game.demand_type in ["reference", "misspecification"]:
-                            game.cycle_reference_prices[:cycle_len, iSession] = cycle_data['reference_price_history']
+                            game.cycle_reference_prices[:, :cycle_len, iSession] = cycle_data['reference_price_history']
 
                 # Save results for this alpha-beta combination
                 run_dir = save_experiment(game, experiment_name, alpha, beta)

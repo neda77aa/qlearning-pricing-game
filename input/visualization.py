@@ -6,6 +6,7 @@ import pandas as pd
 from glob import glob
 import random
 import matplotlib.cm as cm
+from input.init import model
 
 
 ###############################
@@ -476,7 +477,7 @@ def extract_metric_data(experiment_dir, metric_name):
 ################################
 # Single figures 
 
-def create_single_heatmap_gl(results_dir, experiment_name="*", metric_name="Profit Gain", desired_experiment = 'alpha_beta' ,figsize=(10, 8)):
+def create_single_heatmap_gl(results_dir, experiment_name="*", metric_name="Profit Gain" ,figsize=(10, 8), price_plot = 'none'):
     """
     Creates a heatmap of mean profit gains for a specific player across different alpha and beta values.
     
@@ -510,7 +511,8 @@ def create_single_heatmap_gl(results_dir, experiment_name="*", metric_name="Prof
     
 
     # Extract alpha and beta values from directory names
-    gamma_values, lambda_values, metric_values = [], [], []
+    gamma_values, lambda_values = [], []
+    metric_values, avg_min_prices, avg_max_prices = [], [], []
     
     for run_dir in run_dirs:
         try:
@@ -539,9 +541,14 @@ def create_single_heatmap_gl(results_dir, experiment_name="*", metric_name="Prof
                     # Compute the average across all player columns
                     metric_value = df[metric_columns].mean(axis=1).iloc[0]  # Mean across players for this row
 
+                # Calculate min/max prices using the new function
+                avg_min_price, avg_max_price = extract_min_max_price_metric(run_dir)
+
                 gamma_values.append(gamma)
                 lambda_values.append(lambda_)
                 metric_values.append(metric_value)
+                avg_min_prices.append(avg_min_price)
+                avg_max_prices.append(avg_max_price)
                     
         except (IndexError, ValueError) as e:
             print(f"Skipping directory {dir_name} due to parsing error: {e}")
@@ -549,6 +556,19 @@ def create_single_heatmap_gl(results_dir, experiment_name="*", metric_name="Prof
     
     if not gamma_values:
         raise ValueError("No valid data found to create heatmap")
+    
+    if price_plot == 'min' and metric_name == 'Price':
+        metric_name = 'Price Min'
+        # Create and return the heatmap
+        fig = _create_heatmap_gl(gamma_values, lambda_values, avg_min_prices, metric_name, figsize)
+        return fig
+    
+    if price_plot == 'max' and metric_name == 'Price':
+        metric_name = 'Price Max'
+        # Create and return the heatmap
+        fig = _create_heatmap_gl(gamma_values, lambda_values, avg_max_prices, metric_name, figsize)
+        return fig
+
     
     # Create and return the heatmap
     fig = _create_heatmap_gl(gamma_values, lambda_values, metric_values, metric_name, figsize)
@@ -913,11 +933,6 @@ def create_single_heatmap_lossaversion(results_dir, experiment_name="*", metric_
         return _create_heatmap_lossaversion(lossaversion_values, metric_means, metric_stds, metric_name, figsize)
 
 
-
-
-
-
-
 def _create_heatmap_lossaversion(lossaversion_values, data_means, data_stds=None, metric_name="Metric", figsize=(8,6)):
     """
     Helper function to create heatmaps for different metrics (Profit Gain or Mean Price).
@@ -986,3 +1001,250 @@ def _create_heatmap_lossaversion(lossaversion_values, data_means, data_stds=None
     return fig
 
 ###############################
+
+def create_single_heatmap_gamma_only(results_dir, experiment_name="*", metric_name="Profit Gain", figsize=(10, 8)):
+    import matplotlib.pyplot as plt
+    import os
+    import numpy as np
+    import pandas as pd
+    from glob import glob
+
+    results_dir = os.path.abspath(results_dir)
+    exp_dir = os.path.join(results_dir, experiment_name)
+
+    if not os.path.exists(exp_dir):
+        print(exp_dir)
+        raise ValueError(f"No experiment directory found: {exp_dir}")
+
+    pattern = "gamma_*"
+    run_dirs = glob(os.path.join(exp_dir, pattern))
+
+    if not run_dirs:
+        raise ValueError(f"No run directories found matching pattern '{pattern}' in {exp_dir}")
+
+    gamma_values = []
+    metric_means = []
+    metric_stds = []
+
+    coop_vals = []
+    nash_vals = []
+    diffs = []
+
+    for run_dir in run_dirs:
+        try:
+            dir_name = os.path.basename(run_dir)
+            gamma_str = dir_name.split('gamma_')[1]
+            gamma = float(gamma_str)
+
+            stats_file = os.path.join(run_dir, "cycle_statistics.csv")
+            if os.path.exists(stats_file):
+                df = pd.read_csv(stats_file)
+
+                # Extract both mean and std values
+                if metric_name == 'Cycle Length':
+                    mean_col = ['mean_cycle_length']
+                    std_col = ['std_cycle_length']
+                    if mean_col and std_col:
+                        mean_val = df[mean_col].mean(axis=1).iloc[0]
+                        std_val = df[std_col].mean(axis=1).iloc[0]
+
+                        gamma_values.append(gamma)
+                        metric_means.append(mean_val)
+                        metric_stds.append(std_val)
+
+                if metric_name == 'FOC':
+                    # Coop and Nash columns for player 1
+                    coop_col = [col for col in df.columns if col.startswith('p_coop_p1')]
+                    nash_col = [col for col in df.columns if col.startswith('p_nash_p1')]
+                    mean_col = [col for col in df.columns if col.startswith(f'mean_price_p')]
+                    std_col = [col for col in df.columns if col.startswith(f'std_price_p')]
+                    if mean_col and std_col:
+                        mean_val = df[mean_col].mean(axis=1).iloc[0]
+                        std_val = df[std_col].mean(axis=1).iloc[0]
+
+                        metric_means.append(mean_val)
+                        metric_stds.append(std_val)
+
+                    if coop_col and nash_col:
+                        coop_val = df[coop_col].iloc[0].values[0]
+                        nash_val = df[nash_col].iloc[0].values[0]
+
+                        gamma_values.append(gamma)
+                        coop_vals.append(coop_val)
+                        nash_vals.append(nash_val)
+                        diffs.append(coop_val - nash_val)
+
+                else:
+                    mean_col = [col for col in df.columns if col.startswith(f'mean_{metric_name.lower().replace(" ", "_")}_p')]
+                    std_col = [col for col in df.columns if col.startswith(f'std_{metric_name.lower().replace(" ", "_")}_p')]
+                    if mean_col and std_col:
+                        mean_val = df[mean_col].mean(axis=1).iloc[0]
+                        std_val = df[std_col].mean(axis=1).iloc[0]
+
+                        gamma_values.append(gamma)
+                        metric_means.append(mean_val)
+                        metric_stds.append(std_val)
+        except Exception as e:
+            print(f"Skipping {run_dir}: {e}")
+            continue
+
+    if not gamma_values:
+        raise ValueError("No valid data found to plot")
+
+    # Convert and sort
+    gamma_values = np.array(gamma_values)
+    sort_idx = np.argsort(gamma_values)
+    gamma_values = gamma_values[sort_idx]
+
+    if metric_name == 'FOC':
+        coop_vals = np.array(coop_vals)[sort_idx]
+        nash_vals = np.array(nash_vals)[sort_idx]
+        metric_means = np.array(metric_means)[sort_idx]
+        metric_stds = np.array(metric_stds)[sort_idx]
+        diffs = np.array(diffs)[sort_idx]
+
+        # Plot Nash, Coop, and their difference
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.plot(gamma_values, nash_vals, label='Nash Price', color='blue', marker='o')
+        ax.plot(gamma_values, coop_vals, label='Coop Price', color='green', marker='o')
+        #ax.plot(lossaversion_values, diffs, label='Difference (Coop - Nash)', color='red', linestyle='--', marker='x')
+        ax.plot(gamma_values, metric_means, marker='o', linestyle='-', color='black', label='Price')
+        # Add standard deviation shading if available
+        if metric_stds is not None:
+            ax.fill_between(gamma_values, metric_means - metric_stds, metric_means + metric_stds, 
+                            color='black', alpha=0.2, label=f"Price ± std")
+
+        ax.set_xlabel(r'\gamma')
+        ax.set_ylabel("Price Level")
+        ax.set_title("Nash vs Coop Prices vs Gamma")
+        ax.grid(True, linestyle='--', alpha=0.6)
+        ax.legend()
+        return fig
+
+    else:
+        # Normal metric
+        metric_means = np.array(metric_means)[sort_idx]
+        metric_stds = np.array(metric_stds)[sort_idx] if metric_stds else None
+        return _create_heatmap_gamma_only(gamma_values, metric_means, metric_stds, metric_name, figsize)
+
+
+
+
+def _create_heatmap_gamma_only(gamma_values, data_means, data_stds=None, metric_name="Metric", figsize=(8,6)):
+    """
+    Helper function to create heatmaps for different metrics (Profit Gain or Mean Price).
+
+    Parameters:
+    -----------
+    gamma_values : list
+        List of alpha values
+    lambda_values : list
+        List of beta values
+    data_values : list
+        Corresponding values for the heatmap
+    player_num : int
+        Player number being plotted
+    metric_name : str
+        Title of the heatmap (e.g., "Profit Gain", "Mean Price")
+    figsize : tuple
+        Size of the figure
+    """
+
+    # Convert inputs to numpy arrays
+    gamma_values = np.array(gamma_values)
+    data_means = np.array(data_means)
+    if data_stds is not None:
+        data_stds = np.array(data_stds)
+
+    # Sort values based on loss aversion parameters
+    sorted_indices = np.argsort(gamma_values)
+    gamma_values = gamma_values[sorted_indices]
+    data_means = data_means[sorted_indices]
+    if data_stds is not None:
+        data_stds = data_stds[sorted_indices]
+
+    # Choose colors dynamically based on metric type
+    if "Gain" in metric_name:
+        color = 'red'
+    elif "Profit" in metric_name:
+        color = 'blue'
+    elif "Cycle" in metric_name:
+        color = 'purple'
+    elif "Consumer Surplus" in metric_name:
+        color = 'green'
+    else:
+        color = 'black'  # Default case
+
+    # Create plot
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.plot(gamma_values, data_means, marker='o', linestyle='-', color=color, label=metric_name)
+
+    # Add standard deviation shading if available
+    if data_stds is not None:
+        ax.fill_between(gamma_values, data_means - data_stds, data_means + data_stds, 
+                        color=color, alpha=0.2, label=f"{metric_name} ± std")
+
+    # Set labels and title
+    ax.set_xlabel(r'\gamma')
+    ax.set_ylabel(metric_name)
+    ax.set_title(f'{metric_name} vs Loss Aversion')
+
+    # Add grid for better readability
+    ax.grid(True, linestyle='--', alpha=0.6)
+
+    # Show legend
+    ax.legend()
+
+    return fig
+
+###############################
+
+
+# min max value
+def extract_min_max_price_metric(run_dir):
+    game = model(n=2, k = 15, memory = 1,alpha=0.0075, beta=0.01/25000)
+    session_file = os.path.join(run_dir, "session_summaries.csv")
+    if not os.path.exists(session_file):
+        raise ValueError(f"No session_summaries.csv found in {run_dir}")
+    
+    df = pd.read_csv(session_file)
+
+    min_prices = []
+    max_prices = []
+
+    # Extract prices per session
+    for idx, row in df.iterrows():
+        prices_session = []
+
+        # Assuming two players (p1, p2). Extend this if more players exist
+        for player in ['cycle_prices_p1', 'cycle_prices_p2']:
+            price_str = row[player]
+
+            # Robust handling of non-string values
+            if pd.isna(price_str):  # Check if NaN
+                continue
+            if isinstance(price_str, (int, float)):  # Convert numeric to str safely
+                price_str = str(price_str)
+
+            # Convert string of prices to a list of floats safely
+            prices_list = [float(price) for price in price_str.split(',') if price.strip()]
+
+            # Convert float indices to integer indices safely
+            prices_indices = np.array(prices_list, dtype=int)
+
+            # Access actual prices from the game's price array
+            actual_prices = np.asarray(game.A[prices_indices])
+
+            # Extend session prices
+            prices_session.extend(actual_prices)
+        
+        # Calculate min and max prices per session
+        if prices_session:
+            min_prices.append(np.min(prices_session))
+            max_prices.append(np.max(prices_session))
+
+    # Calculate overall averages of min and max prices
+    avg_min_price = np.mean(min_prices) if min_prices else np.nan
+    avg_max_price = np.mean(max_prices) if max_prices else np.nan
+
+    return avg_min_price, avg_max_price
