@@ -766,6 +766,7 @@ def create_comparative_heatmaps_gl(results_dir, experiment_dirs, metric_name="Pr
 def extract_metric_data_gl(experiment_dir, metric_name):
     """Extracts alpha, beta, and a given metric (price, profit, or cycle length) from experiment results."""
     pattern =  "gamma_*_lambda_*"
+    print(experiment_dir)
     run_dirs = glob(os.path.join(experiment_dir, pattern))
 
     gamma_values, lambda_values, metric_values = [], [], []
@@ -1114,7 +1115,7 @@ def create_single_heatmap_gamma_only(results_dir, experiment_name="*", metric_na
             ax.fill_between(gamma_values, metric_means - metric_stds, metric_means + metric_stds, 
                             color='black', alpha=0.2, label=f"Price ± std")
 
-        ax.set_xlabel(r'\gamma')
+        ax.set_xlabel(r'$\gamma$')
         ax.set_ylabel("Price Level")
         ax.set_title("Nash vs Coop Prices vs Gamma")
         ax.grid(True, linestyle='--', alpha=0.6)
@@ -1168,10 +1169,12 @@ def _create_heatmap_gamma_only(gamma_values, data_means, data_stds=None, metric_
         color = 'red'
     elif "Profit" in metric_name:
         color = 'blue'
+    elif "Price" in metric_name:
+        color = 'green'
     elif "Cycle" in metric_name:
         color = 'purple'
     elif "Consumer Surplus" in metric_name:
-        color = 'green'
+        color = 'pink'
     else:
         color = 'black'  # Default case
 
@@ -1185,9 +1188,9 @@ def _create_heatmap_gamma_only(gamma_values, data_means, data_stds=None, metric_
                         color=color, alpha=0.2, label=f"{metric_name} ± std")
 
     # Set labels and title
-    ax.set_xlabel(r'\gamma')
+    ax.set_xlabel(r'$\gamma$')
     ax.set_ylabel(metric_name)
-    ax.set_title(f'{metric_name} vs Loss Aversion')
+    ax.set_title(f'{metric_name} vs Reference Dependance')
 
     # Add grid for better readability
     ax.grid(True, linestyle='--', alpha=0.6)

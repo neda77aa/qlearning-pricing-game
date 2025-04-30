@@ -24,14 +24,14 @@ if __name__ == '__main__':
     # Add freeze_support
     freeze_support()
 
-    Desired_Experiment = 'gamma_only'
+    Desired_Experiment = 'gamma_lambda'
 
     ###########################################
     # generating alpha beta figures
     if Desired_Experiment == 'trial_test':
 
-        game = model(n=2, k = 15, memory = 1,alpha=0.003, beta = 5e-6, demand_type = 'reference', num_sessions = 5, aprint = True, gamma = 1, common_reference = False)
-        # # #game_equilibrium = simulate_game(game)
+        game = model(n=2, k = 15, memory = 1,alpha=0.1, beta = 0.1 / 2500, demand_type = 'reference', num_sessions = 5, aprint = True, gamma = 1, common_reference = False, ref_prediction = 'qlearning')
+        # game_equilibrium = simulate_game(game)
         game_equilibrium = run_sessions(game)
 
     
@@ -39,10 +39,10 @@ if __name__ == '__main__':
     # generating alpha beta figures
     if Desired_Experiment == 'alpha_beta':
         # Define parameter ranges to test
-        alpha_values = np.linspace(0.0045, 0.25, 5)  # 10 values between 0.001 and 0.01
-        beta_values = np.linspace(0.007/25000, 0.5/25000, 5)   # 10 values between 0.001 and 0.01
+        alpha_values = np.linspace(0.0045, 0.05, 5)  # 10 values between 0.001 and 0.01
+        beta_values = np.linspace(0.007/25000, 0.1/25000, 5)   # 10 values between 0.001 and 0.01
 
-        experiment_base_name =  "reference_two/alpha_beta"
+        experiment_base_name =  "reference_qlearning/gamma_lambda"
         num_sessions = 5
         aprint = True
 
@@ -51,6 +51,7 @@ if __name__ == '__main__':
 
 
         for demand_type in ['reference']:
+            ref_prediction = 'qlearning'
             for common_reference in [True,False]:
                 experiment_name = experiment_base_name + "_" + demand_type + str(common_reference)
 
@@ -102,28 +103,29 @@ if __name__ == '__main__':
     if Desired_Experiment == 'gamma_lambda':
        # Define parameter ranges to test
         gamma_values = np.linspace(0, 3, 5)  
-        lambda_values = np.linspace(0, 0.9, 5) 
+        lambda_values = np.linspace(0, 0.95, 5) 
         common_reference = False  
 
-        experiment_base_name =  "reference_two_w/gamma_lambda_c"
-        num_sessions = 10
+        experiment_base_name =  "reference_qlearning/gamma_lambda"
+        num_sessions = 5
         aprint = True
 
         # Store experiment directories for later comparison
         experiment_dirs = {}
 
 
-        for demand_type in ['reference']:
-            for common_reference in [True,False]:
-                experiment_name = experiment_base_name + "_" + demand_type + str(common_reference)
+        for demand_type in ["reference"]:
+            ref_prediction = 'qlearning'
+            for common_reference in [True, False]:
+                experiment_name = experiment_base_name + "_" + demand_type +"_" + str(common_reference)
 
-                game = model(n=2, k = 15, memory = 1, num_sessions = num_sessions, aprint = aprint, demand_type = demand_type, common_reference = common_reference)
+                game = model(n=2, k = 15, memory = 1, num_sessions = num_sessions, aprint = aprint, demand_type = demand_type, common_reference = common_reference, ref_prediction = ref_prediction)
 
                 # Run experiments Single core
                 # game = run_experiment_gl(game, gamma_values, lambda_values, num_sessions= num_sessions, experiment_name = experiment_name, demand_type = demand_type)
 
                 # Or specify number of processes
-                game = run_experiment_parallel_gl(game, gamma_values, lambda_values, num_sessions=num_sessions, experiment_name = experiment_name, demand_type = demand_type, num_processes=6)
+                game = run_experiment_parallel_gl(game, gamma_values, lambda_values, num_sessions=num_sessions, experiment_name = experiment_name, demand_type = demand_type, num_processes=5)
                 # Store experiment directory
                 experiment_dirs[demand_type] = os.path.join("../Results/experiments", experiment_name)
 
@@ -149,7 +151,7 @@ if __name__ == '__main__':
        # Define parameter ranges to test
         lossaversion_values = np.linspace(1, 3, 5)  
 
-        experiment_name =  "reference_two/loss_aversion_parameter"
+        experiment_name =  "reference_qlearning/gamma_only"
         num_sessions = 50
         aprint = True
         demand_type = 'reference'
@@ -189,7 +191,7 @@ if __name__ == '__main__':
        # Define parameter ranges to test
         gamma_values = np.linspace(0, 3, 15)  
 
-        experiment_name =  "reference_two/gamma_only_parameter"
+        experiment_name =  "reference_qlearning/gamma_only"
         num_sessions = 10
         aprint = True
         demand_type = 'reference'
@@ -197,33 +199,36 @@ if __name__ == '__main__':
 
         # Store experiment directories for later comparison
         experiment_dirs = {}
+        ref_prediction = 'qlearning'
+        for common_reference in [True, False]:
 
-        game = model(n=2, k = 15, memory = 1, num_sessions = num_sessions, aprint = aprint, demand_type = 'reference', common_reference = common_reference)
+            game = model(n=2, k = 15, memory = 1, num_sessions = num_sessions, aprint = aprint, demand_type = 'reference', common_reference = common_reference)
 
-        # Run experiments Single core
-        # game = run_experiment_lossaversion(game, lossaversion_values, num_sessions= num_sessions, experiment_name = experiment_name, demand_type = demand_type)
+            # Run experiments Single core
+            # game = run_experiment_lossaversion(game, lossaversion_values, num_sessions= num_sessions, experiment_name = experiment_name, demand_type = demand_type)
 
-        # Or specify number of processes
-        game = run_experiment_parallel_gamma_only(game, gamma_values, num_sessions=num_sessions, experiment_name = experiment_name, demand_type = demand_type, num_processes=4)
+            # Or specify number of processes
+            game = run_experiment_parallel_gamma_only(game, gamma_values, num_sessions=num_sessions, experiment_name = experiment_name, demand_type = demand_type, num_processes=4)
 
-        # Generate heatmaps
-        fig_profit = create_single_heatmap_gamma_only("../Results/experiments",  experiment_name=experiment_name, metric_name="Profit")
-        fig_price_gain = create_single_heatmap_gamma_only("../Results/experiments", experiment_name=experiment_name, metric_name="Price Gain")
-        fig_price = create_single_heatmap_gamma_only("../Results/experiments", experiment_name=experiment_name, metric_name="Price")
-        fig_cycle = create_single_heatmap_gamma_only("../Results/experiments", experiment_name=experiment_name, metric_name="Cycle Length")
-        fig_foc = create_single_heatmap_gamma_only("../Results/experiments", experiment_name=experiment_name, metric_name="FOC")
-        # Create "Figures" directory
-        figures_dir = os.path.join("../Results/experiments", experiment_name, "Figures")
-        os.makedirs(figures_dir, exist_ok=True)
+            main_dir = "../Results/experiments"
+            # Generate heatmaps
+            fig_profit = create_single_heatmap_gamma_only(main_dir,  experiment_name=experiment_name, metric_name="Profit")
+            fig_price_gain = create_single_heatmap_gamma_only(main_dir, experiment_name=experiment_name, metric_name="Price Gain")
+            fig_price = create_single_heatmap_gamma_only(main_dir, experiment_name=experiment_name, metric_name="Price")
+            fig_cycle = create_single_heatmap_gamma_only(main_dir, experiment_name=experiment_name, metric_name="Cycle Length")
+            #fig_foc = create_single_heatmap_gamma_only(main_dir, experiment_name=experiment_name, metric_name="FOC")
+            # Create "Figures" directory
+            figures_dir = os.path.join(main_dir, experiment_name, "Figures")
+            os.makedirs(figures_dir, exist_ok=True)
 
-        # Save figures
-        fig_profit.savefig(os.path.join(figures_dir, "profit_heatmap.png"))
-        fig_price_gain.savefig(os.path.join(figures_dir, "price_gain_heatmap.png"))
-        fig_price.savefig(os.path.join(figures_dir, "price_heatmap.png"))
-        fig_cycle.savefig(os.path.join(figures_dir, "cycle_length.png"))
-        fig_foc.savefig(os.path.join(figures_dir, "nash_coop.png"))
+            # Save figures
+            fig_profit.savefig(os.path.join(figures_dir, "profit_heatmap.png"))
+            fig_price_gain.savefig(os.path.join(figures_dir, "price_gain_heatmap.png"))
+            fig_price.savefig(os.path.join(figures_dir, "price_heatmap.png"))
+            fig_cycle.savefig(os.path.join(figures_dir, "cycle_length.png"))
+            #fig_foc.savefig(os.path.join(figures_dir, "nash_coop.png"))
 
-    #################################################
+        #################################################
     # generating lossaversion figures
     if Desired_Experiment == 'misspecification':
         test = 'gamma_lambda'

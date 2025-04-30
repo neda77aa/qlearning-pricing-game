@@ -54,6 +54,7 @@ class model(object):
         self.memory = kwargs.get('memory', 1)
         self.reference_memory = kwargs.get('reference_memory', 1)
         self.common_reference = kwargs.get('common_reference', True)
+        self.ref_prediction = kwargs.get('ref_prediction', 'exponentially_smoothing')
 
 
         # Get demand_type from kwargs, defaulting to 'noreference'
@@ -64,7 +65,6 @@ class model(object):
         if self.demand_type not in valid_demand_types:
             raise ValueError(f"Invalid demand_type: {self.demand_type}. Allowed values: {valid_demand_types}")
         
-        self.ref_prediction  = "qlearning"
 
         # if lossaversion coefficient is larger than 1 we will go with the loss aversion approach
         if self.lossaversion>1:
@@ -114,6 +114,10 @@ class model(object):
             ref_shape = (1,)  # single common reference price
         else:
             ref_shape = (self.n,)  # each firm has its own reference price
+
+        if self.ref_prediction == "qlearning":
+            self.reference_memory = self.reference_memory + 1
+
         # Initialize all the variables with zeros
         self.converged = np.zeros(self.num_sessions, dtype=bool)  # Convergence status
         self.time_to_convergence = np.zeros(self.num_sessions, dtype=float)  # Time to convergence
@@ -133,8 +137,7 @@ class model(object):
         self.last_observed_reference = np.zeros(ref_shape, dtype=int)
         self.last_reference_observed_prices = np.zeros((self.n, self.reference_memory), dtype=int)  # last prices
         self.last_observed_demand = np.zeros((self.n, self.reference_memory), dtype=float)  # last shares for each firm
-        self.price_history = np.zeros((self.n, 0), dtype=int)  # shape (n_firms, periods)
-
+    
     def reference_price(self, p):
         """
         Compute the reference price `r` based on all firms' prices.

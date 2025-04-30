@@ -9,7 +9,7 @@ from glob import glob
 import multiprocessing as mp
 from functools import partial
 import copy
-
+import random
 
 ###############################################
 ######## Saving Experimat 
@@ -323,7 +323,7 @@ def run_experiment(game, alpha_values, beta_values, num_sessions=1000, demand_ty
 
 
                 # Run Q-learning for this session
-                game, converged, t_convergence = simulate_game(game)
+                game, converged, t_convergence, consumer_reference_agent = simulate_game(game)
 
                 # Store convergence results
                 game.converged[iSession] = converged
@@ -353,7 +353,7 @@ def run_experiment(game, alpha_values, beta_values, num_sessions=1000, demand_ty
                         }
                     if game.demand_type in ["reference", "misspecification"]:
                         # Pass iSession to detect_cycle function
-                        cycle_length, visited_states, visited_profits, price_history, reference_price_history, consumer_surplus_history = detect_cycle(game, iSession)  # Now passing iSession
+                        cycle_length, visited_states, visited_profits, price_history, reference_price_history, consumer_surplus_history = detect_cycle(game, iSession, consumer_reference_agent)  # Now passing iSession
                         cycle_data = {
                             'cycle_length': cycle_length,
                             'visited_states': visited_states,
@@ -437,8 +437,14 @@ def run_single_session(game, alpha, beta, iSession):
         game_copy.last_reference_observed_prices = np.zeros((game_copy.n, game_copy.reference_memory), dtype=int)
         game_copy.last_observed_demand = np.zeros((game_copy.n, game_copy.reference_memory), dtype=float)
 
+
+    # 🔐 Set unique random seed for each session
+    seed = 42 + iSession  # Or use any deterministic function of iSession
+    np.random.seed(seed)
+    random.seed(seed)
+
     # Run simulation
-    game_copy, converged, t_convergence = simulate_game(game_copy)
+    game_copy, converged, t_convergence, consumer_reference_agent = simulate_game(game_copy)
 
     # Store convergence results in game_copy
     game_copy.converged[iSession] = converged
@@ -476,7 +482,7 @@ def run_single_session(game, alpha, beta, iSession):
             }
         if game.demand_type in ["reference", "misspecification"]:
             # Pass iSession to detect_cycle function
-            cycle_length, visited_states, visited_profits, price_history, reference_price_history, consumer_surplus_history = detect_cycle(game_copy, iSession)  # Now passing iSession
+            cycle_length, visited_states, visited_profits, price_history, reference_price_history, consumer_surplus_history = detect_cycle(game_copy, iSession,  consumer_reference_agent)  # Now passing iSession
             cycle_data = {
                 'cycle_length': cycle_length,
                 'visited_states': visited_states,
@@ -573,8 +579,15 @@ def run_experiment_parallel(game, alpha_values, beta_values, num_sessions=1000, 
                         result = pool.apply_async(run_single_session, args=(game, alpha, beta, iSession))
                         session_results.append(result)
                     
-                    # Collect results with timeout
-                    results = [res.get(timeout=600) for res in session_results]
+                        # ✅ Use improved result collection here
+                        results = []
+                        for i, res in enumerate(session_results):
+                            try:
+                                result = res.get(timeout=600)
+                                results.append(result)
+                            except Exception as e:
+                                print(f"Session {i} failed or timed out: {e}")
+                                continue
                 
 
                 # Process results

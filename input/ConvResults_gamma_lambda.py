@@ -9,6 +9,7 @@ from glob import glob
 import multiprocessing as mp
 from functools import partial
 import copy
+import random
 
 
 ###############################################
@@ -329,6 +330,7 @@ def run_experiment_gl(game, gamma_values, lambda_values, num_sessions=1000, dema
             game.gamma = gamma  # Varying gamma
             game.lambda_ = lambda_  # Varying lambda
             game.p_minmax = game.compute_p_competitive_monopoly()
+            game.NashProfits,  game.CoopProfits = game.compute_profits_nash_coop()
             game.p_nash, game.p_coop = game.p_minmax[0], game.p_minmax[1]
             game.PI = game.init_PI()
             game.Q = game.init_Q()
@@ -368,7 +370,7 @@ def run_experiment_gl(game, gamma_values, lambda_values, num_sessions=1000, dema
 
 
                 # Run Q-learning for this session
-                game, converged, t_convergence = simulate_game(game)
+                game, converged, t_convergence, consumer_reference_agent  = simulate_game(game)
 
                 # Store convergence results
                 game.converged[iSession] = converged
@@ -398,7 +400,7 @@ def run_experiment_gl(game, gamma_values, lambda_values, num_sessions=1000, dema
                         }
                     if game.demand_type in ["reference", "misspecification"]:
                         # Pass iSession to detect_cycle function
-                        cycle_length, visited_states, visited_profits, price_history, reference_price_history, consumer_surplus_history = detect_cycle(game, iSession)  # Now passing iSession
+                        cycle_length, visited_states, visited_profits, price_history, reference_price_history, consumer_surplus_history = detect_cycle(game, iSession, consumer_reference_agent)  # Now passing iSession
                         cycle_data = {
                             'cycle_length': cycle_length,
                             'visited_states': visited_states,
@@ -451,6 +453,7 @@ def run_single_session(game, gamma, lambda_, lossaversion, iSession):
     game.lambda_ = lambda_  # Varying lambda
     game.lossaversion = lossaversion
     game.p_minmax = game.compute_p_competitive_monopoly()
+    game.NashProfits,  game.CoopProfits = game.compute_profits_nash_coop()
     game.p_nash, game.p_coop = game.p_minmax[0], game.p_minmax[1]
     game.PI = game.init_PI()
     game.Q = game.init_Q()
@@ -487,12 +490,18 @@ def run_single_session(game, gamma, lambda_, lossaversion, iSession):
 
     if game.demand_type in ["reference", "misspecification"]:
         # Initialize reference-related variables
-        game_copy.last_observed_reference = np.zeros(1, dtype=int)  # Last reference price
+        game_copy.last_observed_reference = np.zeros(ref_shape, dtype=int)
         game_copy.last_reference_observed_prices = np.zeros((game_copy.n, game_copy.reference_memory), dtype=int)
         game_copy.last_observed_demand = np.zeros((game_copy.n, game_copy.reference_memory), dtype=float)
 
+
+    # 🔐 Set unique random seed for each session
+    seed = 42 + iSession  # Or use any deterministic function of iSession
+    np.random.seed(seed)
+    random.seed(seed)
+
     # Run simulation
-    game_copy, converged, t_convergence = simulate_game(game_copy)
+    game_copy, converged, t_convergence, consumer_reference_agent = simulate_game(game_copy)
 
     # Store convergence results in game_copy
     game_copy.converged[iSession] = converged
@@ -530,7 +539,7 @@ def run_single_session(game, gamma, lambda_, lossaversion, iSession):
             }
         if game.demand_type in ["reference", "misspecification"]:
             # Pass iSession to detect_cycle function
-            cycle_length, visited_states, visited_profits, price_history, reference_price_history, consumer_surplus_history = detect_cycle(game_copy, iSession)  # Now passing iSession
+            cycle_length, visited_states, visited_profits, price_history, reference_price_history, consumer_surplus_history = detect_cycle(game_copy, iSession, consumer_reference_agent)  # Now passing iSession
             cycle_data = {
                 'cycle_length': cycle_length,
                 'visited_states': visited_states,
@@ -591,7 +600,8 @@ def run_experiment_parallel_gl(game, gamma_values, lambda_values, num_sessions=1
 
             if os.path.exists(stats_file):
                 print(f"Skipping gamma_{gamma}_lambda_{lambda_} (already exists in {run_dir})")
-                continue  # Skip already completed experiments
+                continue  # Skip running simulation again
+
 
             # Update game parameters
             game.alpha = alpha_fixed
@@ -599,6 +609,7 @@ def run_experiment_parallel_gl(game, gamma_values, lambda_values, num_sessions=1
             game.gamma = gamma  # Varying gamma
             game.lambda_ = lambda_  # Varying lambda
             game.p_minmax = game.compute_p_competitive_monopoly()
+            game.NashProfits,  game.CoopProfits = game.compute_profits_nash_coop()
             game.p_nash, game.p_coop = game.p_minmax[0], game.p_minmax[1]
             game.PI = game.init_PI()
             game.Q = game.init_Q()
@@ -638,8 +649,15 @@ def run_experiment_parallel_gl(game, gamma_values, lambda_values, num_sessions=1
                         result = pool.apply_async(run_single_session, args=(game, gamma, lambda_, loss_aversion_fixed, iSession))
                         session_results.append(result)
                     
-                    # Collect results with timeout
-                    results = [res.get(timeout=600) for res in session_results]
+                    # ✅ Use improved result collection here
+                    results = []
+                    for i, res in enumerate(session_results):
+                        try:
+                            result = res.get(timeout=600)
+                            results.append(result)
+                        except Exception as e:
+                            print(f"Session {i} failed or timed out: {e}")
+                            continue
                 
 
                 # Process results
@@ -727,6 +745,7 @@ def run_experiment_lossaversion(game, lossaversion_values, num_sessions=1000, de
         game.lambda_ = lambda_fixed  
         game.lossaversion = lossaversion # Varying lossaversion
         game.p_minmax = game.compute_p_competitive_monopoly()
+        game.NashProfits,  game.CoopProfits = game.compute_profits_nash_coop()
         game.p_nash, game.p_coop = game.p_minmax[0], game.p_minmax[1]
         game.PI = game.init_PI()
         game.Q = game.init_Q()
@@ -767,7 +786,7 @@ def run_experiment_lossaversion(game, lossaversion_values, num_sessions=1000, de
 
 
             # Run Q-learning for this session
-            game, converged, t_convergence = simulate_game(game)
+            game, converged, t_convergence, consumer_reference_agent = simulate_game(game)
 
             # Store convergence results
             game.converged[iSession] = converged
@@ -797,7 +816,7 @@ def run_experiment_lossaversion(game, lossaversion_values, num_sessions=1000, de
                     }
                 if game.demand_type in ["reference", "misspecification"]:
                     # Pass iSession to detect_cycle function
-                    cycle_length, visited_states, visited_profits, price_history, reference_price_history, consumer_surplus_history = detect_cycle(game, iSession)  # Now passing iSession
+                    cycle_length, visited_states, visited_profits, price_history, reference_price_history, consumer_surplus_history = detect_cycle(game, iSession, consumer_reference_agent)  # Now passing iSession
                     cycle_data = {
                         'cycle_length': cycle_length,
                         'visited_states': visited_states,
@@ -851,6 +870,7 @@ def run_experiment_parallel_lossaversion(game, lossaversion_values, num_sessions
         game.lambda_ = lambda_fixed  
         game.lossaversion = lossaversion # Varying lossaversion
         game.p_minmax = game.compute_p_competitive_monopoly()
+        game.NashProfits,  game.CoopProfits = game.compute_profits_nash_coop()
         game.p_nash, game.p_coop = game.p_minmax[0], game.p_minmax[1]
         game.PI = game.init_PI()
         game.Q = game.init_Q()
@@ -911,9 +931,16 @@ def run_experiment_parallel_lossaversion(game, lossaversion_values, num_sessions
                     result = pool.apply_async(run_single_session, args=(game, gamma_fixed, lambda_fixed, lossaversion, iSession))
                     session_results.append(result)
                 
-                # Collect results with timeout
-                results = [res.get(timeout=600) for res in session_results]
-            
+                # ✅ Use improved result collection here
+                results = []
+                for i, res in enumerate(session_results):
+                    try:
+                        result = res.get(timeout=600)
+                        results.append(result)
+                    except Exception as e:
+                        print(f"Session {i} failed or timed out: {e}")
+                        continue
+    
 
             # Process results
             for result in results:
@@ -986,6 +1013,7 @@ def run_experiment_parallel_gamma_only(game, gamma_values, num_sessions=1000, ex
         game.gamma = gamma 
         game.lambda_ = lambda_fixed  
         game.p_minmax = game.compute_p_competitive_monopoly()
+        game.NashProfits,  game.CoopProfits = game.compute_profits_nash_coop()
         game.p_nash, game.p_coop = game.p_minmax[0], game.p_minmax[1]
         game.PI = game.init_PI()
         game.Q = game.init_Q()
@@ -1046,8 +1074,15 @@ def run_experiment_parallel_gamma_only(game, gamma_values, num_sessions=1000, ex
                     result = pool.apply_async(run_single_session, args=(game, gamma, lambda_fixed, lossaversion_fixed, iSession))
                     session_results.append(result)
                 
-                # Collect results with timeout
-                results = [res.get(timeout=600) for res in session_results]
+                # ✅ Use improved result collection here
+                results = []
+                for i, res in enumerate(session_results):
+                    try:
+                        result = res.get(timeout=600)
+                        results.append(result)
+                    except Exception as e:
+                        print(f"Session {i} failed or timed out: {e}")
+                        continue
             
 
             # Process results

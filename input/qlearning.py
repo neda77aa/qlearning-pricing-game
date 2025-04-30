@@ -4,6 +4,8 @@ Q-learning Functions
 
 import sys
 import numpy as np
+from input.qlearning_reference import ConsumerQReference
+import random 
 
 def generate_init_state(game):
     """
@@ -61,59 +63,15 @@ def compute_reference_price(game, last_reference_price, last_reference_observed_
 
     return ref_price_index
 
-def compute_reference_price_corr(game, price_history, last_reference_price, last_reference_observed_prices, last_observed_demand, lambda_smooth=0.5, cycle_threshold=0.9):
-    """
-    Updates reference price considering potential cycles.
-    - price_history: list of recent prices
-    """
-    if price_history.shape[1] < 10:
-        # Element-wise multiplication of past prices and past demands
-        weighted_prices = last_reference_observed_prices * last_observed_demand  # Shape: (n, reference_memory)
 
-        # Sum across firms (axis=0) to get total market-weighted prices for each past period
-        total_weighted_prices = np.sum(weighted_prices, axis=0)/ np.sum(last_observed_demand, axis = 0)  # Shape: (reference_memory,)
 
-        # Compute the average over reference_memory periods
-        ref_price_continuous = game.lambda_ *  last_reference_price + (1- game.lambda_) * np.mean(total_weighted_prices)  # Single scalar value
-
-        # Round to the nearest valid price index (ensuring it stays within [0, game.k-1])
-        ref_price_index = int(np.clip(np.round(ref_price_continuous), 0, game.k - 1))
-
+def consumer_reward(predicted_price, actual_price, game):
+    if game.common_reference:
+        # Single reference price: scalar
+        return -((predicted_price - np.mean(actual_price)) ** 2)
     else:
-        # Enough history: check for cycle
-        recent_sequence = price_history[:, -5:]   # shape (n, 5)
-        previous_sequence = price_history[:, -10:-5]  # shape (n, 5)
-
-        # Flatten arrays for correlation check across all prices jointly
-        recent_flat = recent_sequence.flatten()
-        previous_flat = previous_sequence.flatten()
-
-        # Check correlation to detect cycle
-        correlation = np.corrcoef(recent_flat, previous_flat)[0, 1]
-
-        if correlation > cycle_threshold:
-            print('corr')
-            # Recognized cycle: average all recent prices in the cycle period
-            rp = np.mean(recent_sequence)
-        else:
-            # No clear cycle: use smoothing based on the mean of firms' prices
-            # Element-wise multiplication of past prices and past demands
-            weighted_prices = last_reference_observed_prices * last_observed_demand  # Shape: (n, reference_memory)
-
-            # Sum across firms (axis=0) to get total market-weighted prices for each past period
-            total_weighted_prices = np.sum(weighted_prices, axis=0)/ np.sum(last_observed_demand, axis = 0)  # Shape: (reference_memory,)
-
-            # Compute the average over reference_memory periods
-            rp = game.lambda_ *  last_reference_price + (1- game.lambda_) * np.mean(total_weighted_prices)  # Single scalar value
-
-
-        # Convert to discrete price index
-        ref_price_index = int(np.clip(np.round(rp), 0, game.k - 1))
-
-    return ref_price_index
-
-
-
+        # Multiple firm-specific reference prices: vector
+        return -np.mean((predicted_price - actual_price) ** 2)
 
 
 
@@ -146,6 +104,7 @@ def update_q(game, s, a, sprime, pi, stable):
     return game.Q, stable
 
 def check_convergence(game, t, stable):
+
     """Check if game converged"""
     if (t % game.tstable == 0) & (t > 0):
         if game.aprint:
@@ -164,12 +123,16 @@ def check_convergence(game, t, stable):
 
 def simulate_game(game):
     """Simulate game"""
+    consumer_reference_agent = None
     s = generate_init_state(game)
 
     # Initialize last observed prices 
     game.last_observed_prices = np.reshape(s[:game.n * game.memory], (game.n, game.memory)).copy()  
 
     if game.demand_type in ["reference", "misspecification"]:
+        if game.ref_prediction == "qlearning":
+            consumer_reference_agent = ConsumerQReference(game.n, game.k, game.reference_memory , common_reference=game.common_reference)
+
         # **Initialize reference price tracking**
         initial_price = s[:game.n].reshape(game.n, 1)  # Extract initial prices
         game.last_reference_observed_prices = np.tile(initial_price, (1, game.reference_memory))  # Fill all reference slots
@@ -183,7 +146,10 @@ def simulate_game(game):
     converged = False
     # Iterate until convergence
     for t in range(int(game.tmax)):
+
         a = pick_strategies(game, s, t)
+
+
         if game.demand_type == 'noreference':
             pi = game.PI[tuple(a)]
         if game.demand_type == 'reference':
@@ -208,17 +174,31 @@ def simulate_game(game):
         game.last_observed_prices[:, 0] = a  # Insert new prices at first position
         
         if game.demand_type in ["reference", "misspecification"]:
-            game.last_reference_observed_prices[:, 1:] = game.last_reference_observed_prices[:, :-1]  # Shift old prices
-            game.last_reference_observed_prices[:, 0] = a  # Insert new prices at first position
-            game.last_observed_demand[:, 1:] = game.last_observed_demand[:, :-1]
-            p = np.asarray(game.A[np.asarray(a)])
-            ref = np.asarray(game.R[np.asarray(game.last_observed_reference)])
-            game.last_observed_demand[:, 0] = game.demand(p, ref)
-            game.last_observed_reference = compute_reference_price(game, game.last_observed_reference, game.last_reference_observed_prices, game.last_observed_demand)
-            # Update price history
-            game.price_history = np.hstack((game.price_history, a.reshape(game.n, 1)))  # appending new prices
-            #game.last_observed_reference_corr = compute_reference_price_corr(game, game.price_history, game.last_observed_reference, game.last_reference_observed_prices, game.last_observed_demand)
+            if game.ref_prediction != "qlearning":
+                game.last_reference_observed_prices[:, 1:] = game.last_reference_observed_prices[:, :-1]  # Shift old prices
+                game.last_reference_observed_prices[:, 0] = a  # Insert new prices at first position
+                game.last_observed_demand[:, 1:] = game.last_observed_demand[:, :-1]
+                p = np.asarray(game.A[np.asarray(a)])
+                ref = np.asarray(game.R[np.asarray(game.last_observed_reference)])
+                game.last_observed_demand[:, 0] = game.demand(p, ref)
+                game.last_observed_reference = compute_reference_price(game, game.last_observed_reference, game.last_reference_observed_prices, game.last_observed_demand)
+            elif game.ref_prediction == "qlearning":
 
+                # Current state for consumer_reference_agent
+                s_reference = game.last_reference_observed_prices.copy()
+                # Update price history
+                game.last_reference_observed_prices[:, 1:] = game.last_reference_observed_prices[:, :-1]
+                game.last_reference_observed_prices[:, 0] = a
+                # Updated state for consumer_reference_agent
+                sprime_reference = game.last_reference_observed_prices
+                consumer_reference_agent.update(game.last_observed_reference, s_reference, a, sprime_reference)   
+                
+                predicted_r = consumer_reference_agent.predict(game.last_reference_observed_prices, t)
+                game.last_observed_reference = predicted_r
+
+                
+
+               
         # **Update State**
         if game.demand_type == 'noreference':
             sprime = game.last_observed_prices.flatten()
@@ -241,7 +221,7 @@ def simulate_game(game):
         if check_convergence(game, t, stable):
             converged = True
             break
-    return game, converged, t
+    return game, converged, t, consumer_reference_agent
 
 
 def run_sessions(game):
@@ -270,7 +250,7 @@ def run_sessions(game):
             game.last_observed_demand = np.zeros((game.n, game.reference_memory), dtype=float)  # last shares for each firm
 
         # Run Q-learning for this session
-        game, converged, t_convergence = simulate_game(game)
+        game, converged, t_convergence, consumer_reference_agent = simulate_game(game)
 
         # Store convergence results
         game.converged[iSession] = converged
@@ -299,7 +279,7 @@ def run_sessions(game):
                 }
             if game.demand_type in ["reference", "misspecification"]:
                 # Pass iSession to detect_cycle function
-                cycle_length, visited_states, visited_profits, price_history, reference_price_history, consumer_surplus_history = detect_cycle(game, iSession)  # Now passing iSession
+                cycle_length, visited_states, visited_profits, price_history, reference_price_history, consumer_surplus_history = detect_cycle(game, iSession, consumer_reference_agent)  # Now passing iSession
                 cycle_data = {
                     'cycle_length': cycle_length,
                     'visited_states': visited_states,
@@ -331,7 +311,7 @@ def compute_consumer_surplus(game, prices, r):
     return surplus
 
 
-def detect_cycle(game, session_idx):
+def detect_cycle(game, session_idx, consumer_reference_agent=None):
     """
     Detects cycles in the game states and computes related metrics.
     Updates game parameters with cycle information.
@@ -367,6 +347,7 @@ def detect_cycle(game, session_idx):
     
     # Initialize based on the demand type and common_reference
     p = np.copy(game.last_observed_prices)
+    p_reference = np.copy(game.last_reference_observed_prices)
     d = np.copy(game.last_observed_demand)
 
     if game.demand_type == 'noreference':
@@ -407,7 +388,13 @@ def detect_cycle(game, session_idx):
 
             p[:, 0] = p_prime  # Update most recent prices
             d[:, 0] = game.demand(np.asarray(game.A[np.asarray(p_prime)]),np.asarray(game.R[np.asarray(r)])) 
-            r = compute_reference_price(game, r, p, d)
+            if game.ref_prediction == "qlearning":
+                p_reference[:, 1:] = p_reference[:, :-1]
+                p_reference[:, 0] = p_prime  # Update most recent prices
+                # Predict new reference price (index)
+                r = consumer_reference_agent.predict(p_reference, i_period, cycle = True)
+            else:
+                r = compute_reference_price(game, r, p, d)
 
 
         price_history[:, i_period] = p_prime
