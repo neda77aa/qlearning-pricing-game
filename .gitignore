@@ -1,0 +1,16 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# Editor settings
+.vscode/
+
+# Local outputs (adjust if you intentionally version results)
+Results/
+../Results/
