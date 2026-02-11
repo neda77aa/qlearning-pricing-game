@@ -36,20 +36,21 @@ python main.py --experiment gamma_only
 - `loss_aversion`
 - `gamma_only`
 - `mu_only`
-- `misspecification`
-
-For misspecification mode, choose sub-test:
-
-```bash
-python main.py --experiment misspecification --misspecification-test gamma_lambda
-python main.py --experiment misspecification --misspecification-test alpha_beta
-```
 
 ### Common reference toggle (default: true)
 
 ```bash
 python main.py --experiment gamma_only --common-reference true
 python main.py --experiment gamma_only --common-reference false
+```
+
+### Demand type toggle (default: reference)
+
+Use this for experiments that support demand-switching (`alpha_beta`, `gamma_lambda`, `gamma_only`):
+
+```bash
+python main.py --experiment gamma_lambda --demand-type reference
+python main.py --experiment gamma_lambda --demand-type misspecification
 ```
 
 ### Choose output root at runtime
@@ -70,6 +71,15 @@ Experiments write outputs under:
 
 - `<output-root>/<experiment_subfolder>/...`
 
+Default output root in `main.py`:
+
+- `/Users/neda/Desktop/UBC/PHD/research_term_4/Rerun`
+
+If `../Results/experiments` already exists as a normal directory, `main.py` will:
+
+1. Move it to a timestamped backup folder.
+2. Redirect future writes to the selected `--output-root`.
+
 Typical outputs include:
 
 - `config.csv`
@@ -83,6 +93,8 @@ Typical outputs include:
 - `num_sessions = 200`
 - all `np.linspace(..., 30)` grids use 30 points
 - `common_reference = true` unless you pass `--common-reference false`
+- `demand_type = reference` unless you pass `--demand-type misspecification`
+- `output_root = /Users/neda/Desktop/UBC/PHD/research_term_4/Rerun`
 
 ## Requirements
 
