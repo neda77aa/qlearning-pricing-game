@@ -2,6 +2,12 @@
 
 This repository contains simulation code for reference-dependent demand and Q-learning pricing dynamics.
 
+## Model Overview
+
+![Model overview](docs/model-overview.png)
+
+The setup uses two Q-learning firms interacting with a reference-dependent consumer-side process, consistent with the project design.
+
 ## Project Structure
 
 - `main.py`: clean experiment launcher with CLI options
@@ -85,3 +91,9 @@ Install dependencies from:
 ```bash
 pip install -r requirements.txt
 ```
+
+## Acknowledgments
+
+- This project originally started from: [matteocourthoud/Algorithmic-Collusion-Replication](https://github.com/matteocourthoud/Algorithmic-Collusion-Replication)
+- Current implementation and extensions are substantially customized for this repository.
+- Conceptual setup is based on your referenced paper: [AER article page](https://www.jstor.org/stable/26966472)
