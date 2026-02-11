@@ -4,7 +4,7 @@ This repository contains simulation code for reference-dependent demand and Q-le
 
 ## Model Overview
 
-![Model overview](docs/model-overview.png)
+![Model overview](model-overview.png)
 
 The setup uses two Q-learning firms interacting with a reference-dependent consumer-side process, consistent with the project design.
 
