@@ -1,6 +1,13 @@
-# Algorithmic Collusion Replication (Reference Dependence)
+# Consumer Behavior and Algorithmic Price Competition: The Case of Reference Dependence
 
-This repository contains simulation code for reference-dependent demand and Q-learning pricing dynamics.
+Simulation code for the paper
+**"Consumer Behavior and Algorithmic Price Competition: The Case of
+Reference Dependence."**
+
+The code studies Q-learning pricing dynamics under reference-dependent
+demand: two firms learn prices via tabular Q-learning while consumers
+form a (common or firm-specific) reference price that shifts demand
+asymmetrically through a gain–loss term.
 
 ## Model Overview
 
@@ -106,6 +113,6 @@ pip install -r requirements.txt
 
 ## Acknowledgments
 
-- This project originally started from: [matteocourthoud/Algorithmic-Collusion-Replication](https://github.com/matteocourthoud/Algorithmic-Collusion-Replication)
-- Current implementation and extensions are substantially customized for this repository.
-- Conceptual setup is based on your referenced paper: [AER article page](https://www.jstor.org/stable/26966472)
+- This project originally started from: [matteocourthoud/Algorithmic-Collusion-Replication](https://github.com/matteocourthoud/Algorithmic-Collusion-Replication).
+- The Q-learning pricing baseline follows Calvano, Calzolari, Denicolò, and Pastorello, *"Artificial Intelligence, Algorithmic Pricing, and Collusion,"* AER 2020 ([JSTOR](https://www.jstor.org/stable/26966472)).
+- Reference-dependent demand and the consumer-side reference-price agent are extensions developed for this paper.
