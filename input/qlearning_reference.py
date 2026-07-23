@@ -5,7 +5,7 @@ import numpy as np
 from itertools import product
 
 class ConsumerQReference:
-    def __init__(self, n_firms, k, memory, common_reference=True, alpha=0.1, beta = 0.1 / 2500, delta=0.95):
+    def __init__(self, n_firms, k, memory, common_reference=True, alpha=0.15/2, beta = 0.1 / 2500, delta=0.95):
         """
         Initializes the consumer Q-learning reference model.
 

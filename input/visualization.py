@@ -1251,3 +1251,252 @@ def extract_min_max_price_metric(run_dir):
     avg_max_price = np.mean(max_prices) if max_prices else np.nan
 
     return avg_min_price, avg_max_price
+
+
+
+##################################
+def create_single_heatmap_mu_only(results_dir, experiment_name="*", metric_name="Profit Gain", figsize=(10, 8)):
+    import matplotlib.pyplot as plt
+    import os
+    import numpy as np
+    import pandas as pd
+    from glob import glob
+
+    results_dir = os.path.abspath(results_dir)
+    exp_dir = os.path.join(results_dir, experiment_name)
+
+    if not os.path.exists(exp_dir):
+        print(exp_dir)
+        raise ValueError(f"No experiment directory found: {exp_dir}")
+
+    pattern = "mu_*"
+    run_dirs = glob(os.path.join(exp_dir, pattern))
+
+    if not run_dirs:
+        raise ValueError(f"No run directories found matching pattern '{pattern}' in {exp_dir}")
+
+    mu_values = []
+    metric_means = []
+    metric_stds = []
+
+    coop_vals = []
+    nash_vals = []
+    diffs = []
+
+    for run_dir in run_dirs:
+        try:
+            dir_name = os.path.basename(run_dir)
+            mu_str = dir_name.split('mu_')[1]
+            mu = float(mu_str)
+
+            stats_file = os.path.join(run_dir, "cycle_statistics.csv")
+            if os.path.exists(stats_file):
+                df = pd.read_csv(stats_file)
+
+                # Extract both mean and std values
+                if metric_name == 'Cycle Length':
+                    mean_col = ['mean_cycle_length']
+                    std_col = ['std_cycle_length']
+                    if mean_col and std_col:
+                        mean_val = df[mean_col].mean(axis=1).iloc[0]
+                        std_val = df[std_col].mean(axis=1).iloc[0]
+
+                        mu_values.append(mu)
+                        metric_means.append(mean_val)
+                        metric_stds.append(std_val)
+
+                if metric_name == 'FOC':
+                    coop_col = [col for col in df.columns if col.startswith('p_coop_p1')]
+                    nash_col = [col for col in df.columns if col.startswith('p_nash_p1')]
+                    mean_col = [col for col in df.columns if col.startswith(f'mean_price_p')]
+                    std_col = [col for col in df.columns if col.startswith(f'std_price_p')]
+                    if mean_col and std_col:
+                        mean_val = df[mean_col].mean(axis=1).iloc[0]
+                        std_val = df[std_col].mean(axis=1).iloc[0]
+
+                        metric_means.append(mean_val)
+                        metric_stds.append(std_val)
+
+                    if coop_col and nash_col:
+                        coop_val = df[coop_col].iloc[0].values[0]
+                        nash_val = df[nash_col].iloc[0].values[0]
+
+                        mu_values.append(mu)
+                        coop_vals.append(coop_val)
+                        nash_vals.append(nash_val)
+                        diffs.append(coop_val - nash_val)
+
+                else:
+                    mean_col = [col for col in df.columns if col.startswith(f'mean_{metric_name.lower().replace(" ", "_")}_p')]
+                    std_col = [col for col in df.columns if col.startswith(f'std_{metric_name.lower().replace(" ", "_")}_p')]
+                    if mean_col and std_col:
+                        mean_val = df[mean_col].mean(axis=1).iloc[0]
+                        std_val = df[std_col].mean(axis=1).iloc[0]
+
+                        mu_values.append(mu)
+                        metric_means.append(mean_val)
+                        metric_stds.append(std_val)
+        except Exception as e:
+            print(f"Skipping {run_dir}: {e}")
+            continue
+
+    if not mu_values:
+        raise ValueError("No valid data found to plot")
+
+    # Convert and sort
+    mu_values = np.array(mu_values)
+    sort_idx = np.argsort(mu_values)
+    mu_values = mu_values[sort_idx]
+
+    if metric_name == 'FOC':
+        coop_vals = np.array(coop_vals)[sort_idx]
+        nash_vals = np.array(nash_vals)[sort_idx]
+        metric_means = np.array(metric_means)[sort_idx]
+        metric_stds = np.array(metric_stds)[sort_idx]
+        diffs = np.array(diffs)[sort_idx]
+
+        fig, ax = plt.subplots(figsize=figsize)
+        ax.plot(mu_values, nash_vals, label='Nash Price', color='blue', marker='o')
+        ax.plot(mu_values, coop_vals, label='Coop Price', color='green', marker='o')
+        ax.plot(mu_values, metric_means, marker='o', linestyle='-', color='black', label='Price')
+        if metric_stds is not None:
+            ax.fill_between(mu_values, metric_means - metric_stds, metric_means + metric_stds, 
+                            color='black', alpha=0.2, label=f"Price ± std")
+
+        ax.set_xlabel(r'$\mu$')
+        ax.set_ylabel("Price Level")
+        ax.set_title("Nash vs Coop Prices vs μ")
+        ax.grid(True, linestyle='--', alpha=0.6)
+        ax.legend()
+        return fig
+
+    else:
+        metric_means = np.array(metric_means)[sort_idx]
+        metric_stds = np.array(metric_stds)[sort_idx] if metric_stds else None
+        return _create_heatmap_mu_only(mu_values, metric_means, metric_stds, metric_name, figsize)
+
+
+def _create_heatmap_mu_only(mu_values, data_means, data_stds=None, metric_name="Metric", figsize=(8,6)):
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    mu_values = np.array(mu_values)
+    data_means = np.array(data_means)
+    if data_stds is not None:
+        data_stds = np.array(data_stds)
+
+    sorted_indices = np.argsort(mu_values)
+    mu_values = mu_values[sorted_indices]
+    data_means = data_means[sorted_indices]
+    if data_stds is not None:
+        data_stds = data_stds[sorted_indices]
+
+    if "Gain" in metric_name:
+        color = 'red'
+    elif "Profit" in metric_name:
+        color = 'blue'
+    elif "Price" in metric_name:
+        color = 'green'
+    elif "Cycle" in metric_name:
+        color = 'purple'
+    elif "Consumer Surplus" in metric_name:
+        color = 'pink'
+    else:
+        color = 'black'
+
+    fig, ax = plt.subplots(figsize=figsize)
+    ax.plot(mu_values, data_means, marker='o', linestyle='-', color=color, label=metric_name)
+    if data_stds is not None:
+        ax.fill_between(mu_values, data_means - data_stds, data_means + data_stds, 
+                        color=color, alpha=0.2, label=f"{metric_name} ± std")
+
+    ax.set_xlabel(r'$\mu$')
+    ax.set_ylabel(metric_name)
+    ax.set_title(f'{metric_name} vs Reference Dependence (μ)')
+    ax.grid(True, linestyle='--', alpha=0.6)
+    ax.legend()
+    return fig
+
+
+###############################
+# Overlay of several gamma_only experiments on one axis
+# (e.g. reference vs price_sensitivity benchmark vs reference-control)
+
+def _extract_gamma_only_metric(exp_dir, metric_name):
+    """Read a gamma_only experiment dir and return (gammas, means, stds) sorted by gamma."""
+    import os, numpy as np, pandas as pd
+    from glob import glob
+
+    run_dirs = glob(os.path.join(exp_dir, "gamma_*"))
+    gammas, means, stds = [], [], []
+    for run_dir in run_dirs:
+        try:
+            gamma = float(os.path.basename(run_dir).split('gamma_')[1])
+        except (IndexError, ValueError):
+            continue
+        stats_file = os.path.join(run_dir, "cycle_statistics.csv")
+        if not os.path.exists(stats_file):
+            continue
+        df = pd.read_csv(stats_file)
+        if metric_name == 'Cycle Length':
+            mean_cols, std_cols = ['mean_cycle_length'], ['std_cycle_length']
+        else:
+            key = metric_name.lower().replace(" ", "_")
+            mean_cols = [c for c in df.columns if c.startswith(f'mean_{key}_p')]
+            std_cols = [c for c in df.columns if c.startswith(f'std_{key}_p')]
+        if not mean_cols:
+            continue
+        gammas.append(gamma)
+        means.append(df[mean_cols].mean(axis=1).iloc[0])
+        stds.append(df[std_cols].mean(axis=1).iloc[0] if std_cols else np.nan)
+
+    if not gammas:
+        return np.array([]), np.array([]), np.array([])
+    order = np.argsort(gammas)
+    return (np.array(gammas)[order], np.array(means)[order], np.array(stds)[order])
+
+
+def overlay_gamma_only(results_dir, experiments, metric_name="Profit Gain",
+                       figsize=(9, 6), colors=None, show_std=True):
+    """
+    Overlay a metric vs gamma for several gamma_only experiments.
+
+    Parameters
+    ----------
+    results_dir : str
+        Base experiments directory (e.g. "../Results/experiments").
+    experiments : dict[str, str]
+        Mapping {legend_label: experiment_name}. experiment_name is the path
+        under results_dir, e.g. "price_sensitivity_sharedgrid/gamma_only_price_sensitivity".
+    metric_name : str
+        One of "Price", "Profit", "Price Gain", "Profit Gain", "Cycle Length".
+    colors : dict[str, str] or None
+        Optional {legend_label: color}.
+    show_std : bool
+        Shade ± std around each curve.
+    """
+    import os, matplotlib.pyplot as plt
+    results_dir = os.path.abspath(results_dir)
+
+    fig, ax = plt.subplots(figsize=figsize)
+    default_cycle = plt.rcParams['axes.prop_cycle'].by_key().get('color', None)
+
+    for i, (label, exp_name) in enumerate(experiments.items()):
+        exp_dir = os.path.join(results_dir, exp_name)
+        gammas, means, stds = _extract_gamma_only_metric(exp_dir, metric_name)
+        if len(gammas) == 0:
+            print(f"[overlay] no data for '{label}' in {exp_dir}")
+            continue
+        c = (colors or {}).get(label) if colors else None
+        if c is None and default_cycle:
+            c = default_cycle[i % len(default_cycle)]
+        ax.plot(gammas, means, marker='o', linestyle='-', color=c, label=label)
+        if show_std and stds.size and not (stds != stds).all():
+            ax.fill_between(gammas, means - stds, means + stds, color=c, alpha=0.15)
+
+    ax.set_xlabel(r'$\gamma$')
+    ax.set_ylabel(metric_name)
+    ax.set_title(f'{metric_name} vs $\\gamma$: reference vs price sensitivity')
+    ax.grid(True, linestyle='--', alpha=0.6)
+    ax.legend()
+    return fig

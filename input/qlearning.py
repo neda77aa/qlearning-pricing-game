@@ -121,17 +121,46 @@ def check_convergence(game, t, stable):
     return False
 
 
-def simulate_game(game):
-    """Simulate game"""
-    consumer_reference_agent = None
+def simulate_game(game, consumer_reference_agent=None, train_reference=True):
+    """Simulate game.
+
+    Parameters
+    ----------
+    game : model
+        The pricing game instance.
+    consumer_reference_agent : ConsumerQReference or None, optional
+        If provided and ``game.ref_prediction == 'qlearning'``, this pretrained
+        consumer Q-learning agent will be used to generate reference prices.
+        When ``train_reference`` is False, the agent will *not* be updated
+        during the simulation (two-stage learning). If None, a fresh
+        ``ConsumerQReference`` will be created when needed.
+    train_reference : bool, optional
+        If True (default), the consumer reference Q-learner is updated each
+        period when ``ref_prediction == 'qlearning'``. If False, the agent is
+        only queried via ``predict`` and never updated. This lets you run the
+        original “joint learning” setup or a two-stage setup with a frozen
+        pretrained reference agent.
+    """
+
     s = generate_init_state(game)
 
     # Initialize last observed prices 
     game.last_observed_prices = np.reshape(s[:game.n * game.memory], (game.n, game.memory)).copy()  
 
     if game.demand_type in ["reference", "misspecification"]:
-        if game.ref_prediction == "qlearning":
-            consumer_reference_agent = ConsumerQReference(game.n, game.k, game.reference_memory , common_reference=game.common_reference)
+        if game.ref_prediction == "qlearning" and consumer_reference_agent is None:
+            # Create a fresh consumer Q-learning agent only if one was not
+            # supplied (backwards-compatible default behaviour).
+            consumer_reference_agent = ConsumerQReference(
+                game.n,
+                game.k,
+                game.reference_memory,
+                common_reference=game.common_reference,
+                # Use game parameters by default so behaviour matches firms
+                alpha=game.alpha / 2,
+                beta=game.beta,
+                delta=game.delta,
+            )
 
         # **Initialize reference price tracking**
         initial_price = s[:game.n].reshape(game.n, 1)  # Extract initial prices
@@ -147,10 +176,13 @@ def simulate_game(game):
     # Iterate until convergence
     for t in range(int(game.tmax)):
 
+        if t > 2e5:
+            rrr = 1
+
         a = pick_strategies(game, s, t)
 
 
-        if game.demand_type == 'noreference':
+        if game.demand_type in ('noreference', 'price_sensitivity'):
             pi = game.PI[tuple(a)]
         if game.demand_type == 'reference':
             if game.common_reference:
@@ -191,16 +223,28 @@ def simulate_game(game):
                 game.last_reference_observed_prices[:, 0] = a
                 # Updated state for consumer_reference_agent
                 sprime_reference = game.last_reference_observed_prices
-                consumer_reference_agent.update(game.last_observed_reference, s_reference, a, sprime_reference)   
-                
-                predicted_r = consumer_reference_agent.predict(game.last_reference_observed_prices, t)
-                game.last_observed_reference = predicted_r
 
-                
+                # In the original setup we always updated the reference agent
+                # jointly with the firms. To support a two-stage protocol
+                # where the reference process is pretrained and then frozen,
+                # we condition the update on ``train_reference``.
+                if train_reference:
+                    consumer_reference_agent.update(
+                        game.last_observed_reference,
+                        s_reference,
+                        a,
+                        sprime_reference,
+                    )
+
+                predicted_r = consumer_reference_agent.predict(
+                    game.last_reference_observed_prices,
+                    t,
+                )
+                game.last_observed_reference = predicted_r
 
                
         # **Update State**
-        if game.demand_type == 'noreference':
+        if game.demand_type in ('noreference', 'price_sensitivity'):
             sprime = game.last_observed_prices.flatten()
 
         elif game.demand_type == 'reference':
@@ -222,6 +266,73 @@ def simulate_game(game):
             converged = True
             break
     return game, converged, t, consumer_reference_agent
+
+
+def pretrain_consumer_reference(game, T_ref=200000):
+    """Pre-train a consumer Q-learning reference agent.
+
+    This function runs a simple environment where prices follow a random
+    process and the consumer reference agent learns to predict the next
+    period's prices based on past price history. The pretrained agent can
+    then be passed into :func:`simulate_game` with ``train_reference=False``
+    to implement a two-stage learning protocol where firms learn against a
+    (approximately) stationary reference process.
+
+    Parameters
+    ----------
+    game : model
+        A game instance providing ``n``, ``k`` and ``reference_memory``.
+        Other game parameters (γ, loss aversion, etc.) are *not* used here;
+        only the price grid structure matters for reference formation.
+    T_ref : int, optional
+        Number of pretraining iterations for the consumer reference agent.
+
+    Returns
+    -------
+    ConsumerQReference
+        A pretrained consumer reference agent ready to be used in
+        :func:`simulate_game`.
+    """
+
+    # Instantiate a consumer reference agent using the same structural
+    # parameters as the game. We decouple its learning-rate schedule from
+    # the firms but keep them in the same ballpark.
+    cref = ConsumerQReference(
+        n_firms=game.n,
+        k=game.k,
+        memory=game.reference_memory,
+        common_reference=game.common_reference,
+        alpha=game.alpha / 2,
+        beta=game.beta,
+        delta=game.delta,
+    )
+
+    # Initialize a random price history (indices on the price grid)
+    price_hist = np.random.randint(0, game.k, size=(game.n, game.reference_memory))
+
+    for t in range(int(T_ref)):
+        # Current state for the reference agent
+        s = price_hist.copy()
+
+        # Agent predicts a reference based on current history
+        predicted_r = cref.predict(price_hist, t)
+
+        # Generate next-period prices from a simple random policy
+        a = np.random.randint(0, game.k, size=game.n)
+
+        # Shift history and insert the new prices
+        price_hist[:, 1:] = price_hist[:, :-1]
+        price_hist[:, 0] = a
+        sprime = price_hist.copy()
+
+        # Update reference agent based on the forecasting error
+        cref.update(predicted_r, s, a, sprime)
+
+    # We deliberately **do not** freeze the agent here. The returned
+    # ``cref`` keeps its own exploration schedule and can continue to
+    # learn during the main firm-learning phase. Pretraining simply
+    # provides a better initialization of its Q-table.
+    return cref
 
 
 def run_sessions(game):
@@ -267,7 +378,7 @@ def run_sessions(game):
 
         # If converged, analyze post-convergence cycles
         if converged:
-            if game.demand_type == 'noreference':
+            if game.demand_type in ('noreference', 'price_sensitivity'):
                 # Pass iSession to detect_cycle function
                 cycle_length, visited_states, visited_profits, price_history, _, consumer_surplus_history = detect_cycle(game, iSession)  # Now passing iSession
                 cycle_data = {
@@ -301,6 +412,10 @@ def compute_consumer_surplus(game, prices, r):
     """
     if game.demand_type == 'noreference':
         e = np.exp((game.a - prices) / game.mu)
+        surplus = game.mu * np.log(np.sum(e) + np.exp(game.a0 / game.mu))
+    elif game.demand_type == 'price_sensitivity':
+        # u = a - (1+gamma)*p, no reference term
+        e = np.exp((game.a - (1 + game.gamma) * prices) / game.mu)
         surplus = game.mu * np.log(np.sum(e) + np.exp(game.a0 / game.mu))
     elif game.demand_type in ["reference", "misspecification"]:
         # Effective price: p_i^eff = p_i + gamma * (p_i - r)
@@ -350,10 +465,10 @@ def detect_cycle(game, session_idx, consumer_reference_agent=None):
     p_reference = np.copy(game.last_reference_observed_prices)
     d = np.copy(game.last_observed_demand)
 
-    if game.demand_type == 'noreference':
+    if game.demand_type in ('noreference', 'price_sensitivity'):
         r = np.zeros(1, dtype=int)
         state = p.flatten()
-    
+
     if game.demand_type == 'reference':
         if game.common_reference:
             r = np.copy(game.last_observed_reference)  # Single value
@@ -373,7 +488,7 @@ def detect_cycle(game, session_idx, consumer_reference_agent=None):
     # Main loop for detecting cycles
     for i_period in range(game.num_periods):
 
-        if game.demand_type == 'noreference':
+        if game.demand_type in ('noreference', 'price_sensitivity'):
             # Update price history
             if game.memory > 1:
                 p[:, 1:] = p[:, :-1]  # Shift older prices up
@@ -399,7 +514,7 @@ def detect_cycle(game, session_idx, consumer_reference_agent=None):
 
         price_history[:, i_period] = p_prime
         
-        if game.demand_type == 'noreference':
+        if game.demand_type in ('noreference', 'price_sensitivity'):
             # Record current state
             visited_states[i_period] = compute_state_number(game, p, 1)
             # Compute and record profits
@@ -458,12 +573,12 @@ def detect_cycle(game, session_idx, consumer_reference_agent=None):
                     
                     game.cycle_consumer_surplus[:cycle_length, session_idx] = consumer_surplus_history
                     
-                    if game.demand_type == 'noreference':
-                        return cycle_length, visited_states, visited_profits, price_history, reference_price_history, consumer_surplus_history 
+                    if game.demand_type in ('noreference', 'price_sensitivity'):
+                        return cycle_length, visited_states, visited_profits, price_history, reference_price_history, consumer_surplus_history
                     if game.demand_type in ["reference", "misspecification"]:
                         return cycle_length, visited_states, visited_profits, price_history, reference_price_history, consumer_surplus_history
                 
-        if game.demand_type == 'noreference':
+        if game.demand_type in ('noreference', 'price_sensitivity'):
             # Update p_prime for next iteration
             p_prime = game.index_strategies[(slice(None),) + tuple(p.flatten()) + (session_idx,)]
 
