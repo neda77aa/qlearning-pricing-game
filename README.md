@@ -52,8 +52,9 @@ reviewer_notes_fixes/        reviewer-response notes
   simulation data (§3), then run a **figure script** to render the paper PNG (§4).
 - **Base 4-panel logit figures** (`figure1_gamma_only_q_{price,profit,price_gain,
   profit_gain}.png`) and most appendix grids are produced by the
-  `creating_results.ipynb` notebook. The `.py` figure scripts add the
-  `_altbench` gain variants and the linear / TD3 / IRF / cycle robustness blocks.
+  `creating_results.ipynb` notebook. Everything else (the `_altbench` gain
+  variants and the linear / TD3 / IRF / cycle robustness blocks) is produced by
+  the single `make_figures.py` script — one subcommand per figure family (§4).
 - **Reproducibility:** per-session seeds are drawn from OS entropy, so absolute
   numbers vary slightly run-to-run; qualitative curves are stable. Independent
   session blocks are i.i.d. and may be pooled.
@@ -82,32 +83,46 @@ All commands are `$PY <script>` from the repo root. Output folder is under
 
 ## 4. Regenerating each paper figure
 
-`$PY <script>` from the repo root. Figures land under
-`paper_overleaf/Images/…` (some scripts hard-code a
-`Final_Paper__Reference_Dependence__Copy2_/Images/` output path — see §5; repoint
-that constant to `paper_overleaf/Images` before running).
+All figures are produced by **`make_figures.py`**, one subcommand per figure
+family, run as `$PY make_figures.py <subcommand>` from the repo root. Output
+always lands under `paper_overleaf/Images/…` where the paper `\includegraphics`
+reads it — no output-path editing needed.
+
+```
+$PY make_figures.py all                    # run the standard committed set (best effort)
+$PY make_figures.py altbench [--new]       # alt-benchmark gain panels + heatmaps
+$PY make_figures.py irf                    # deviation/punishment panels + LaTeX table rows
+$PY make_figures.py recolor-linear-td3     # linear + TD3 price/profit/gain panels (purple)
+$PY make_figures.py linear-gains-longterm  # overwrite linear gain panels w/ long-term benchmark
+$PY make_figures.py rebuild                # benchmark/market/misspec/firm-specific/lossaversion
+$PY make_figures.py td3-cycles             # combined 2x2 TD3 cycle panel
+$PY make_figures.py td3-cycles-appendix    # appendix-style per-panel TD3 cycles + legend
+$PY make_figures.py linear-postprocess [experiment]   # both-benchmark summary CSV + plots
+$PY make_figures.py linear-paper-figs [experiment]    # publication-style linear line plots
+$PY make_figures.py panels {linear|td3} <experiment> <out_dir>
+```
 
 ### Main text
 
 | Paper figure (label) | Image(s) | How to regenerate |
 |---|---|---|
-| Fig 3 — γ only (`fig:gammaonly_q`) | `4_seperate_figures/benchmark/…` | base panels: `creating_results.ipynb`; alt-benchmark gains: `gen_altbench_gains.py` |
-| Market structure (`fig:gamma_c_mu`) | `4_seperate_figures/market_structure/…` | notebook + `gen_altbench_gains.py` |
-| Deviations/punishments (`fig:irf_mechanism`, `fig:irf_by_gamma`, Tab `irf_tabular`) | `impulse_response/irf_*` | `main.py` (`gamma_only`, β=4e-6) → `irf_new_sweep.py` → `paper_irf_figures.py` (table rows print to stdout) |
-| Misspecification (`fig:gammaonly_refmiss_crtrue`) | `4_seperate_figures/misspecification/…` | notebook + `gen_altbench_gains.py` |
+| Fig 3 — γ only (`fig:gammaonly_q`) | `4_seperate_figures/benchmark/…` | base panels: `creating_results.ipynb`; alt-benchmark gains: `make_figures.py altbench` |
+| Market structure (`fig:gamma_c_mu`) | `4_seperate_figures/market_structure/…` | notebook + `make_figures.py altbench` |
+| Deviations/punishments (`fig:irf_mechanism`, `fig:irf_by_gamma`, Tab `irf_tabular`) | `impulse_response/irf_*` | `main.py` (`gamma_only`, β=4e-6) → `irf_new_sweep.py` → `make_figures.py irf` (table rows print to stdout) |
+| Misspecification (`fig:gammaonly_refmiss_crtrue`) | `4_seperate_figures/misspecification/…` | notebook + `make_figures.py altbench` |
 | Loss aversion (`fig:loss_aversion`) | `4_seperate_figures/lossaversion/…` | notebook (data: `paper_rerun_lossaversion.py`) |
-| Firm-specific reference (`fig:gammaonly_crtruefalse_qlr`) | `4_seperate_figures/Firm-specific/…` | notebook + `gen_altbench_gains.py` |
-| Q-learning reference (`fig:qlr_crtrue`) | `4_seperate_figures/exp_smooth/…` | notebook + `gen_altbench_gains.py` |
-| Linear demand (`fig:linear_gamma`) | `4_seperate_figures_beta4e6/linear/…` | `run_linear_qref.py` → `recolor_linear_td3_purple.py` (price/profit) → `recompute_linear_gains_longterm.py` (overwrites the two gain panels) |
-| TD3 (`fig:td3_gamma`, Tab `irf_td3`) | `4_seperate_figures_lr1e-4/td3/…` | `main_td3.py` → `recolor_linear_td3_purple.py` + `gen_altbench_gains.py`; TD3 IRF table: `impulse_response.py td3` → `paper_irf_figures.py` |
-| TD3 cycles (`fig:td3_cycles`) | `4_seperate_figures_lr1e-4/td3_cycles/td3_cycle_examples.png` | `plot_td3_cycles.py` (reads `rollout_paths.npz`) |
+| Firm-specific reference (`fig:gammaonly_crtruefalse_qlr`) | `4_seperate_figures/Firm-specific/…` | notebook + `make_figures.py altbench` |
+| Q-learning reference (`fig:qlr_crtrue`) | `4_seperate_figures/exp_smooth/…` | notebook + `make_figures.py altbench` |
+| Linear demand (`fig:linear_gamma`) | `4_seperate_figures_beta4e6/linear/…` | `run_linear_qref.py` → `make_figures.py recolor-linear-td3` (price/profit) → `make_figures.py linear-gains-longterm` (overwrites the two gain panels) |
+| TD3 (`fig:td3_gamma`, Tab `irf_td3`) | `4_seperate_figures_lr1e-4/td3/…` | `main_td3.py` → `make_figures.py recolor-linear-td3` + `make_figures.py altbench`; TD3 IRF table: `impulse_response.py td3` → `make_figures.py irf` |
+| TD3 cycles (`fig:td3_cycles`) | `4_seperate_figures_lr1e-4/td3_cycles/td3_cycle_examples.png` | `make_figures.py td3-cycles` (reads `rollout_paths.npz`) |
 | Intro schematics | `Images/idea.png`, `Images/framework.png` | static assets (no script) |
 | Consumer-welfare tables (`tab:consumer_*`) | — | hand-authored LaTeX (no script) |
 
-`gen_altbench_gains.py` has two modes: `gen_altbench_gains.py` (benchmark,
+`make_figures.py altbench` has two modes: without flags (benchmark,
 market_structure, misspecification, Firm-specific, exp_smooth, td3, gamma_lambda,
-gamma_delta) and `gen_altbench_gains.py new` (the appendix `exp_smoothing_*` and
-`Separated_Panels_*`/`Seperated_Panels_CR` blocks).
+gamma_delta) and `make_figures.py altbench --new` (the appendix `exp_smoothing_*`
+and `Separated_Panels_*`/`Seperated_Panels_CR` blocks).
 
 ### Appendix (`appendix_extension.tex`)
 
@@ -116,36 +131,33 @@ gamma_delta) and `gen_altbench_gains.py new` (the appendix `exp_smoothing_*` and
 | Cycle examples | `4_seperate_figures/appendix_cycles/…` | `creating_results.ipynb` |
 | Cycle histograms | `4_seperate_figures/histogram/…` | `creating_results.ipynb` |
 | α–β diff panels | `4_seperate_figures/Separated_Panels_AlphaBeta_DiffOnly/…` | `creating_results.ipynb` |
-| γ×δ heatmaps (`fig:gamma_delta`) | `gamma_delta/…_heatmap[_altbench].png` | data: `main.py`; alt-benchmark: `gen_altbench_gains.py` |
-| γ×λ heatmaps | `4_seperate_figures/gamma_lambda/…` | notebook + `gen_altbench_gains.py new` |
-| exp-smoothing misspec / firm-specific | `4_seperate_figures/exp_smoothing_*/…` | notebook + `gen_altbench_gains.py new` |
-| Separated misspec / CR panels | `4_seperate_figures/{Separated_Panels_miss,Seperated_Panels_CR}/…` | notebook + `gen_altbench_gains.py new` |
-| Linear ES (`fig:linear_es`) | `4_seperate_figures_beta4e6/linear_es/…` | data: `main_linear.py`; gain panels: `recompute_linear_gains_longterm.py` |
+| γ×δ heatmaps (`fig:gamma_delta`) | `gamma_delta/…_heatmap[_altbench].png` | data: `main.py`; alt-benchmark: `make_figures.py altbench` |
+| γ×λ heatmaps | `4_seperate_figures/gamma_lambda/…` | notebook + `make_figures.py altbench --new` |
+| exp-smoothing misspec / firm-specific | `4_seperate_figures/exp_smoothing_*/…` | notebook + `make_figures.py altbench --new` |
+| Separated misspec / CR panels | `4_seperate_figures/{Separated_Panels_miss,Seperated_Panels_CR}/…` | notebook + `make_figures.py altbench --new` |
+| Linear ES (`fig:linear_es`) | `4_seperate_figures_beta4e6/linear_es/…` | data: `main_linear.py`; gain panels: `make_figures.py linear-gains-longterm` |
+| TD3 cycles, appendix style | `4_seperate_figures_lr1e-4/td3_cycles/td3_cycle_L{1,2,4,6}.png` + `td3_cycle_legend.png` | `make_figures.py td3-cycles-appendix` (used by `appendix_extension_revised.tex`) |
 | γ cycle probability | `4_seperate_figures/cycle/…` | `creating_results.ipynb` |
 
 Publication-style linear line plots / panels (alternative styling, not the main
-Fig 11) come from `postprocess_linear_benchmarks.py` →
-`paper_figures_linear.py` / `paper_panels.py`.
+Fig 11) come from `make_figures.py linear-postprocess` →
+`make_figures.py linear-paper-figs` / `make_figures.py panels`.
 
 ---
 
 ## 5. Notes & caveats
 
-- **Output-path rewrite.** `gen_altbench_gains.py`, `rebuild_paper_figures.py`,
-  `recolor_linear_td3_purple.py`, `recompute_linear_gains_longterm.py`,
-  `paper_irf_figures.py`, and `plot_td3_cycles.py` hard-code their output to a
-  `Final_Paper__Reference_Dependence__Copy2_/Images/` directory. Point that
-  constant at `paper_overleaf/Images/` before running so the figures land where
-  the paper `\includegraphics` reads them.
+- **Figure output path.** All of `make_figures.py` writes under
+  `paper_overleaf/Images/…` (the paths are set by the `IMG` constant at the top
+  of the file), so figures land where the paper `\includegraphics` reads them
+  with no editing needed.
 - **`_dualconv` folders.** The newest drivers append `_dualconv` to their output
   folder name (dual firm+reference convergence rule — a robustness check). The
-  paper's figure scripts read the **non-`_dualconv`** folders; the `_dualconv`
-  runs are archived separately under
-  `../Result_double_convergence/` and analysed with
-  `analyze_gamma_ref_qlearn.py` / `preview_*_dualconv.py`.
+  paper's figures read the **non-`_dualconv`** folders; the `_dualconv` runs are
+  archived separately under `../Result_double_convergence/`.
 - **Dual convergence rule** (in `input/qlearning.py`) is opt-in via
   `require_reference_stability=True`; default is off so committed paper runs are
-  unchanged. See `run_gamma_ref_qlearn_diag.py` for the diagnostic driver.
+  unchanged.
 - **`creating_results.ipynb`** produces the base logit 4-panel figures and most
-  appendix grids. The `.py` figure scripts cover everything else (alt-benchmark
-  gains, linear, TD3, IRF, cycles).
+  appendix grids. `make_figures.py` covers everything else (alt-benchmark gains,
+  linear, TD3, IRF, cycles).

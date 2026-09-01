@@ -20,9 +20,9 @@ DEFAULT config below reproduces the paper's TD3 results:
         Figures/exp<NN>_gamma_<g>_profits.png grid: converged profits, all sessions
         Figures/{price,profit,price_gain,profit_gain,cycle_length}.png  gamma-only heatmaps
 
-These feed the paper's TD3 figures via ``recolor_linear_td3_purple.py`` /
-``gen_altbench_gains.py`` (Fig td3_gamma) and ``plot_td3_cycles.py`` (Fig
-td3_cycles, which reads rollout_paths.npz).
+These feed the paper's TD3 figures via ``make_figures.py recolor-linear-td3`` /
+``make_figures.py altbench`` (Fig td3_gamma) and ``make_figures.py td3-cycles``
+(Fig td3_cycles, which reads rollout_paths.npz).
 
 Config: 15 gammas ∈ [0.05, 3], 50 sessions/gamma (matches the tabular/linear
 paper runs), lr=1e-4 (the continuous-action analog of the corrected
