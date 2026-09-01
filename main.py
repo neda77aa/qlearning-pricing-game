@@ -416,6 +416,7 @@ def main():
                 num_processes=4,
                 use_reference_pretraining=use_reference_pretraining,
                 T_ref=T_ref,
+                beta=4e-6,   # paper default exploration rate
             )
 
             main_dir = "../Results/experiments"

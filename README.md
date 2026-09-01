@@ -67,8 +67,7 @@ All commands are `$PY <script>` from the repo root. Output folder is under
 
 | Script | Output folder | What it runs |
 |---|---|---|
-| `tabular_sweep_beta4e6.py` | `gamma_nloss_reference_True_beta4e-6_ESref/` | Tabular logit γ sweep (30 γ∈[0.05,3], 50 sess, β=4e-6, ES reference). Source for the **tabular IRF**. |
-| `tabular_sweep_beta4e6_qref.py` | `gamma_nloss_reference_True_qref_beta4e-6_dualconv/` | Baseline γ sweep with a **Q-learning consumer reference**. |
+| `main.py` (`Desired_Experiment='gamma_only'`) | `2*2_2/gamma_only_reference*/` | Tabular logit γ sweep (β=4e-6, the paper default). Source for the **tabular IRF**. Edit the γ grid / session count / `ref_prediction` at the top of the `gamma_only` block. |
 | `paper_reruns_stage2.py` | `gamma_nloss_reference_True{c_0,mu_0,...}_qref_beta4e-6_dualconv/` | Market-structure (c=0, μ=0.05), misspecification, and firm-specific (CR=False) variants. |
 | `paper_rerun_lossaversion.py` | `lossaversion_reverse_beta4e-6/` | Loss-aversion sweep (φ∈[1,3], γ=1). |
 | `main_gamma_only_mu_c.py` | `sweeps/gamma_only_{c,mu}/…` | γ sweeps across a grid of c and μ. |
@@ -94,7 +93,7 @@ that constant to `paper_overleaf/Images` before running).
 |---|---|---|
 | Fig 3 — γ only (`fig:gammaonly_q`) | `4_seperate_figures/benchmark/…` | base panels: `creating_results.ipynb`; alt-benchmark gains: `gen_altbench_gains.py` |
 | Market structure (`fig:gamma_c_mu`) | `4_seperate_figures/market_structure/…` | notebook + `gen_altbench_gains.py` |
-| Deviations/punishments (`fig:irf_mechanism`, `fig:irf_by_gamma`, Tab `irf_tabular`) | `impulse_response/irf_*` | `tabular_sweep_beta4e6.py` → `irf_new_sweep.py` → `paper_irf_figures.py` (table rows print to stdout) |
+| Deviations/punishments (`fig:irf_mechanism`, `fig:irf_by_gamma`, Tab `irf_tabular`) | `impulse_response/irf_*` | `main.py` (`gamma_only`, β=4e-6) → `irf_new_sweep.py` → `paper_irf_figures.py` (table rows print to stdout) |
 | Misspecification (`fig:gammaonly_refmiss_crtrue`) | `4_seperate_figures/misspecification/…` | notebook + `gen_altbench_gains.py` |
 | Loss aversion (`fig:loss_aversion`) | `4_seperate_figures/lossaversion/…` | notebook (data: `paper_rerun_lossaversion.py`) |
 | Firm-specific reference (`fig:gammaonly_crtruefalse_qlr`) | `4_seperate_figures/Firm-specific/…` | notebook + `gen_altbench_gains.py` |

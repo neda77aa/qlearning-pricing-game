@@ -831,7 +831,7 @@ def run_experiment_parallel_gd(game, gamma_values, delta_values, lambda_fixed=0.
 
     # Fixed values
     alpha_fixed = 0.15
-    beta_fixed = 0.1 / 2500
+    beta_fixed = 4e-6   # paper default (corrected from 4e-5)
     loss_aversion_fixed = 1.5
 
     for i, gamma in enumerate(gamma_values):
@@ -1270,7 +1270,7 @@ def run_experiment_parallel_gamma_only(game, gamma_values, num_sessions=1000,
                                        experiment_name='test',  demand_type='noreference',
                                        num_processes=None, use_reference_pretraining=False,
                                        T_ref=200000, lambda_fixed=0.6,
-                                       alpha=0.15, beta=0.1 / 2500,
+                                       alpha=0.15, beta=4e-6,
                                        lossaversion_fixed=1.5,
                                        session_timeout=1800):
     """

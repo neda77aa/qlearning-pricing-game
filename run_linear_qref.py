@@ -4,8 +4,9 @@ Q-learning consumer reference agent.
 Mirrors the linear ES run (main_linear.py defaults: 30 gammas, 50 sessions,
 beta=4e-6, alpha=0.15, lambda=0.6, lossaversion=1) but forms the consumer
 reference with a pretrained Q-learning agent (ref_prediction='qlearning',
-T_ref=2e5) instead of exponential smoothing -- the linear counterpart of
-tabular_sweep_beta4e6_qref.py.
+T_ref=2e5) instead of exponential smoothing -- the linear counterpart of the
+tabular Q-reference sweep (main.py, gamma_only block with
+ref_prediction='qlearning').
 
 Note: continuous_reference does not apply here (the ES branch is bypassed when
 ref_prediction='qlearning').
