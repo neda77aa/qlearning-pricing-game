@@ -69,7 +69,6 @@ All commands are `$PY <script>` from the repo root. Output folder is under
 | Script | Output folder | What it runs |
 |---|---|---|
 | `main.py` (`Desired_Experiment='gamma_only'`) | `2*2_2/gamma_only_reference*/` | Tabular logit γ sweep (β=4e-6, the paper default). Source for the **tabular IRF**. Edit the γ grid / session count / `ref_prediction` at the top of the `gamma_only` block. |
-| `paper_reruns_stage2.py` | `gamma_nloss_reference_True{c_0,mu_0,...}_qref_beta4e-6_dualconv/` | Market-structure (c=0, μ=0.05), misspecification, and firm-specific (CR=False) variants. |
 | `paper_rerun_lossaversion.py` | `lossaversion_reverse_beta4e-6/` | Loss-aversion sweep (φ∈[1,3], γ=1). |
 | `main_gamma_only_mu_c.py` | `sweeps/gamma_only_{c,mu}/…` | γ sweeps across a grid of c and μ. |
 | `main.py` (`Desired_Experiment='gamma_delta'`) | `gamma_delta/gamma_delta_reference_True_contref/` | γ×δ heatmap grid (30×30, 50 sess). |
