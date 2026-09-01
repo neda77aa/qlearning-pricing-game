@@ -14,10 +14,10 @@ from multiprocessing import freeze_support
 from input.init import model
 from input.qlearning import simulate_game, run_sessions
 from input.ConvResults import run_experiment, run_experiment_parallel
-from input.ConvResults_gamma_lambda import run_experiment_gl, run_experiment_parallel_gl, run_experiment_parallel_lossaversion, run_experiment_parallel_gamma_only, run_experiment_lossaversion
+from input.ConvResults_gamma_lambda import run_experiment_gl, run_experiment_parallel_gl, run_experiment_parallel_lossaversion, run_experiment_parallel_gamma_only, run_experiment_lossaversion, run_experiment_parallel_gd
 from input.ConvResults_mu import run_experiment_parallel_mu_only  # 👈 add this
 import matplotlib.pyplot as plt
-from input.visualization import create_comparative_heatmaps, create_single_heatmap, create_single_heatmap_gamma_only, create_comparative_heatmaps_gl, create_single_heatmap_gl, create_single_heatmap_lossaversion, create_comparative_heatmaps_miss,create_single_heatmap_mu_only 
+from input.visualization import create_comparative_heatmaps, create_single_heatmap, create_single_heatmap_gamma_only, create_comparative_heatmaps_gl, create_single_heatmap_gl, create_single_heatmap_lossaversion, create_comparative_heatmaps_miss,create_single_heatmap_mu_only, create_single_heatmap_gd
 
 
 
@@ -25,7 +25,7 @@ if __name__ == '__main__':
     # Add freeze_support
     freeze_support()
 
-    Desired_Experiment = 'price_sensitivity'
+    Desired_Experiment = 'gamma_delta'
 
     ###########################################
     # generating alpha beta figures
@@ -152,6 +152,75 @@ if __name__ == '__main__':
                 fig_price_gain.savefig(os.path.join(figures_dir, "profit_gain_heatmap.png"))
                 fig_price.savefig(os.path.join(figures_dir, "price_heatmap.png"))
                 fig_cycle.savefig(os.path.join(figures_dir, "cyclelength_heatmap.png"))
+
+
+    #################################################
+    # Generate gamma x delta values (discount factor on the y-axis)
+    #
+    # x-axis = 10 gamma values, y-axis = 10 delta (discount factor) values from
+    # 0.1 to 0.95 (default delta is 0.95). Color intensity = average price /
+    # profit, same style as the gamma_lambda figures. lambda is held fixed.
+    if Desired_Experiment == 'gamma_delta':
+        # Define parameter ranges to test
+        gamma_values = np.linspace(0.05, 3.0, 30)   # x-axis
+        delta_values = np.linspace(0.1, 0.95, 30)   # y-axis (discount factor)
+        lambda_fixed = 0.5                          # model default, held fixed
+
+        experiment_base_name = "gamma_delta/gamma_delta"
+        num_sessions = 50   # lower this (e.g. 4) for a quick smoke test
+        aprint = True
+        lossaversion = 1
+        demand_type = 'reference'
+        common_reference = True
+        ref_prediction = 'exponentially_smoothing'
+        # Continuous-reference robustness fix: smooth the reference in price
+        # units and index it only at the PI/profit lookup (matches the linear fix).
+        continuous_reference = True
+
+        experiment_name = experiment_base_name + "_" + demand_type + "_" + str(common_reference) + "_contref"
+
+        game = model(
+            n=2, k=15, memory=1,
+            lossaversion=lossaversion,
+            num_sessions=num_sessions,
+            aprint=aprint,
+            demand_type=demand_type,
+            common_reference=common_reference,
+            ref_prediction=ref_prediction,
+            continuous_reference=continuous_reference,
+        )
+
+        # Run the gamma x delta sweep in parallel
+        game = run_experiment_parallel_gd(
+            game,
+            gamma_values,
+            delta_values,
+            lambda_fixed=lambda_fixed,
+            num_sessions=num_sessions,
+            experiment_name=experiment_name,
+            demand_type=demand_type,
+            num_processes=4,
+        )
+
+        main_dir = "../Results/experiments"
+        # Generate heatmaps (Price and Profit are the requested ones)
+        fig_profit = create_single_heatmap_gd(main_dir, experiment_name=experiment_name, metric_name="Profit")
+        fig_price = create_single_heatmap_gd(main_dir, experiment_name=experiment_name, metric_name="Price")
+        fig_price_gain = create_single_heatmap_gd(main_dir, experiment_name=experiment_name, metric_name="Price Gain")
+        fig_profit_gain = create_single_heatmap_gd(main_dir, experiment_name=experiment_name, metric_name="Profit Gain")
+        fig_cycle = create_single_heatmap_gd(main_dir, experiment_name=experiment_name, metric_name="mean_cycle_length")
+
+        # Create "Figures" directory
+        figures_dir = os.path.join(main_dir, experiment_name, "Figures")
+        os.makedirs(figures_dir, exist_ok=True)
+
+        # Save figures
+        fig_profit.savefig(os.path.join(figures_dir, "profit_heatmap.png"))
+        fig_price.savefig(os.path.join(figures_dir, "price_heatmap.png"))
+        fig_price_gain.savefig(os.path.join(figures_dir, "price_gain_heatmap.png"))
+        fig_profit_gain.savefig(os.path.join(figures_dir, "profit_gain_heatmap.png"))
+        fig_cycle.savefig(os.path.join(figures_dir, "cyclelength_heatmap.png"))
+        print(f"gamma_delta figures saved in {figures_dir}")
 
 
     #################################################

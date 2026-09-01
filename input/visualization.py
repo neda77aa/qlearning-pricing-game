@@ -653,6 +653,141 @@ def _create_heatmap_gl(gamma_values, lambda_values, data_values, metric_name, fi
 ###############################
 
 
+def create_single_heatmap_gd(results_dir, experiment_name="*", metric_name="Profit Gain", figsize=(10, 8), price_plot='none'):
+    """
+    Creates a heatmap of a metric across a gamma x delta grid.
+
+    x-axis = gamma, y-axis = delta (the discount factor). Mirrors
+    create_single_heatmap_gl but parses "gamma_*_delta_*" run directories.
+    """
+
+    # Resolve the full path if a relative path is provided
+    results_dir = os.path.abspath(results_dir)
+
+    # First get the experiment directory
+    exp_dir = os.path.join(results_dir, experiment_name)
+    if not os.path.exists(exp_dir):
+        raise ValueError(f"No experiment directory found: {exp_dir}")
+
+    # Get all gamma-delta directories
+    pattern = "gamma_*_delta_*"
+
+    run_dirs = glob(os.path.join(exp_dir, pattern))
+
+    if not run_dirs:
+        raise ValueError(f"No run directories found matching pattern '{pattern}' in {exp_dir}")
+
+    # Extract gamma and delta values from directory names
+    gamma_values, delta_values = [], []
+    metric_values, avg_min_prices, avg_max_prices = [], [], []
+
+    for run_dir in run_dirs:
+        try:
+            # Extract gamma and delta from directory name
+            dir_name = os.path.basename(run_dir)
+            # The format should be "gamma_X_delta_Y"
+            gamma_str = dir_name.split('gamma_')[1].split('_delta_')[0]
+            delta_str = dir_name.split('delta_')[1].split('_')[0]
+
+            gamma = float(gamma_str)
+            delta = float(delta_str)
+
+            # Read cycle statistics
+            stats_file = os.path.join(run_dir, "cycle_statistics.csv")
+            if os.path.exists(stats_file):
+                df = pd.read_csv(stats_file)
+                if metric_name == 'mean_cycle_length':
+                    metric_columns = [col for col in df.columns if col.startswith(f'mean_cycle_length')]
+                else:
+                    metric_columns = [col for col in df.columns if col.startswith(f'mean_{metric_name.lower().replace(" ", "_")}_p')]
+
+                if metric_columns:
+                    # Compute the average across all player columns
+                    metric_value = df[metric_columns].mean(axis=1).iloc[0]  # Mean across players for this row
+
+                # Calculate min/max prices using the new function
+                avg_min_price, avg_max_price = extract_min_max_price_metric(run_dir)
+
+                gamma_values.append(gamma)
+                delta_values.append(delta)
+                metric_values.append(metric_value)
+                avg_min_prices.append(avg_min_price)
+                avg_max_prices.append(avg_max_price)
+
+        except (IndexError, ValueError) as e:
+            print(f"Skipping directory {dir_name} due to parsing error: {e}")
+            continue
+
+    if not gamma_values:
+        raise ValueError("No valid data found to create heatmap")
+
+    if price_plot == 'min' and metric_name == 'Price':
+        metric_name = 'Price Min'
+        fig = _create_heatmap_gd(gamma_values, delta_values, avg_min_prices, metric_name, figsize)
+        return fig
+
+    if price_plot == 'max' and metric_name == 'Price':
+        metric_name = 'Price Max'
+        fig = _create_heatmap_gd(gamma_values, delta_values, avg_max_prices, metric_name, figsize)
+        return fig
+
+    # Create and return the heatmap
+    fig = _create_heatmap_gd(gamma_values, delta_values, metric_values, metric_name, figsize)
+    return fig
+
+
+def _create_heatmap_gd(gamma_values, delta_values, data_values, metric_name, figsize):
+    """
+    Helper to create gamma x delta heatmaps: x-axis = gamma, y-axis = delta.
+    """
+
+    # Convert inputs to numpy arrays
+    gamma_values = np.array(gamma_values)
+    delta_values = np.array(delta_values)
+    data_values = np.array(data_values)
+
+    # Get unique values for the grid
+    unique_gammas = np.sort(np.unique(gamma_values))
+    unique_deltas = np.sort(np.unique(delta_values))
+
+    # Create grid for the heatmap: rows = delta (y), cols = gamma (x)
+    data_grid = np.zeros((len(unique_deltas), len(unique_gammas)))
+
+    # Fill grid with values
+    for gamma, delta, value in zip(gamma_values, delta_values, data_values):
+        i = np.where(unique_deltas == delta)[0][0]  # Find row index (y)
+        j = np.where(unique_gammas == gamma)[0][0]  # Find column index (x)
+        data_grid[i, j] = value
+
+    data_grid = replace_nans_and_zeros(data_grid, data_values)
+
+    if figsize is not None:
+        plt.figure(figsize=figsize)
+
+    # Set colormap based on metric
+    cmap_choice = 'Reds' if "Gain" in metric_name else ('Blues' if "Profit" in metric_name else ('Purples' if "mean_cycle_length" in metric_name else 'Greens'))
+
+    # Create the heatmap
+    im = plt.imshow(
+        data_grid,
+        aspect='auto',
+        origin='lower',
+        extent=[min(unique_gammas), max(unique_gammas), min(unique_deltas), max(unique_deltas)],
+        cmap=cmap_choice,
+    )
+    # Add color bar
+    plt.colorbar(im, label=metric_name)
+
+    # Set labels and title
+    plt.xlabel(r'$\gamma$')
+    plt.ylabel(r'$\delta$')
+    plt.title(f'{metric_name}')
+
+    return plt.gcf()
+
+###############################
+
+
 ################################
 # Comparison Figures
 
@@ -1184,7 +1319,14 @@ def _create_heatmap_gamma_only(gamma_values, data_means, data_stds=None, metric_
 
     # Add standard deviation shading if available
     if data_stds is not None:
-        ax.fill_between(gamma_values, data_means - data_stds, data_means + data_stds, 
+        lower = data_means - data_stds
+        # Cycle length is a discrete count with a hard floor at 1; a symmetric
+        # mean +/- std band is otherwise drawn into an impossible region (< 1)
+        # because the distribution is right-skewed (mostly 1s). Clip the lower
+        # edge at the true floor. Values are unchanged; only the shading is fixed.
+        if "Cycle" in metric_name:
+            lower = np.maximum(lower, 1.0)
+        ax.fill_between(gamma_values, lower, data_means + data_stds,
                         color=color, alpha=0.2, label=f"{metric_name} ± std")
 
     # Set labels and title

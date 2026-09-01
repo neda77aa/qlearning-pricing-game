@@ -55,11 +55,34 @@ class model(object):
         self.reference_memory = kwargs.get('reference_memory', 1)
         self.common_reference = kwargs.get('common_reference', True)
         self.ref_prediction = kwargs.get('ref_prediction', 'exponentially_smoothing')
+        # Continuous-reference robustness fix (exponentially_smoothing path only).
+        # When True, the reference is smoothed as a continuous float (price units)
+        # and rounded to a grid index ONLY for the Q-state / PI reward lookup.
+        # This removes the index-space re-rounding trap in compute_reference_price
+        # (an absorbing offset node that keeps r above p at high gamma). Default
+        # False preserves the committed logit paper results exactly.
+        self.continuous_reference = kwargs.get('continuous_reference', False)
         # Optional explicit action-price grid: (lower_bound, upper_bound). When
         # provided, init_actions() uses it verbatim (no extension) and freezes
         # it across the whole gamma sweep. Used for the Reviewer-2
         # price_sensitivity benchmark so both models share ONE fixed grid.
         self.grid_bounds = kwargs.get('grid_bounds', None)
+
+        # --- Convergence / diagnostics options (opt-in; default off so every
+        # committed paper run is numerically unchanged) ---
+        # require_reference_stability: when True a session is declared converged
+        # only when BOTH the firms' Q-argmax policy AND the reference-price index
+        # have been stable for the usual tstable window (see
+        # qlearning.check_convergence). Default False = firm-only Calvano rule.
+        self.require_reference_stability = kwargs.get('require_reference_stability', False)
+        # track_q_stabilization: when True, simulate_game records the mean
+        # absolute per-cell change of the firms' (and, under ref_prediction
+        # 'qlearning', the consumer reference agent's) Q-table every
+        # q_stab_interval steps, so we can report whether the Q values settle
+        # before the argmax-based convergence fires. Trajectory stored on
+        # game.q_diag as an (m, 3) array of [t, mean|dQ_firm|, mean|dQ_ref|].
+        self.track_q_stabilization = kwargs.get('track_q_stabilization', False)
+        self.q_stab_interval = int(kwargs.get('q_stab_interval', 1000))
 
 
         # Get demand_type from kwargs, defaulting to 'noreference'
@@ -147,6 +170,14 @@ class model(object):
         self.profit_gains = np.zeros((self.num_actions, self.n), dtype=float)  # Profit gains
         self.last_observed_prices = np.zeros((self.n, self.memory), dtype=int)  # last prices
         self.last_observed_reference = np.zeros(ref_shape, dtype=int)
+        # Continuous companion to last_observed_reference (price units). Only used
+        # when continuous_reference=True; carries the un-rounded smoothed reference
+        # so it can relax to the firms' price at a fixed point. Scalar for a common
+        # reference, else one per firm.
+        if self.common_reference:
+            self.last_observed_reference_cont = 0.0
+        else:
+            self.last_observed_reference_cont = np.zeros(self.n, dtype=float)
         self.last_reference_observed_prices = np.zeros((self.n, self.reference_memory), dtype=int)  # last prices
         self.last_observed_demand = np.zeros((self.n, self.reference_memory), dtype=float)  # last shares for each firm
     

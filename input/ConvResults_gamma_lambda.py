@@ -42,6 +42,13 @@ class ExperimentSaver:
         os.makedirs(run_dir, exist_ok=True)
         return run_dir
     
+    def get_run_dir_gd(self, gamma, delta):
+        """Create directory for a specific gamma, delta combination"""
+        run_name = f"gamma_{gamma}_delta_{delta}"
+        run_dir = os.path.join(self.experiment_dir, run_name)
+        os.makedirs(run_dir, exist_ok=True)
+        return run_dir
+
     def get_run_dir_lossaversion(self, lossaversion):
         """Create directory for specific gamma, lambda combination"""
         run_name = f"lossaversion_{lossaversion}" #_{self.timestamp}"
@@ -322,6 +329,18 @@ def save_experiment(game, experiment_name, gamma, lambda_):
     
     return run_dir
 
+def save_experiment_gd(game, experiment_name, gamma, delta):
+    """Main function to save all experiment data for a gamma-delta run"""
+    saver = ExperimentSaver(experiment_name)
+    run_dir = saver.get_run_dir_gd(gamma, delta)  # Use the get_run_dir_gd method
+
+    # Save all components
+    saver.save_experiment_config(game, run_dir)
+    saver.save_session_results(game, run_dir)
+    saver.save_cycle_statistics(game, run_dir)
+
+    return run_dir
+
 def save_experiment_lossaversion(game, experiment_name, lossaversion):
     """Main function to save all experiment data"""
     saver = ExperimentSaver(experiment_name)
@@ -489,29 +508,30 @@ def run_experiment_gl(game, gamma_values, lambda_values, num_sessions=1000, dema
 ## Parallel Computing Section
 
 def run_single_session(game, gamma, lambda_, lossaversion, iSession,
-                       use_reference_pretraining=False, T_ref=200000):
+                       use_reference_pretraining=False, T_ref=200000,
+                       alpha=0.15, beta=0.1 / 2500):
     """
     Run a single session of the game
-    
+
     Parameters:
     -----------
     game : object
         Game instance
     iSession : int
         Session number
-    
+    alpha, beta : float
+        Q-learning rate and exploration-decay rate. Defaults preserve the
+        historical hard-coded values (0.15, 4e-5); pass explicitly to vary.
+        NOTE: these OVERRIDE whatever game.alpha/game.beta were set to.
+
     Returns:
     --------
     dict : Session results
     """
 
-    # Fixed values
-    alpha_fixed = 0.15
-    beta_fixed = 0.1 / 2500
-
     # # Update game parameters
-    game.alpha = alpha_fixed
-    game.beta = beta_fixed
+    game.alpha = alpha
+    game.beta = beta
     game.gamma = gamma  # Varying gamma
     game.lambda_ = lambda_  # Varying lambda
     game.lossaversion = lossaversion
@@ -630,6 +650,10 @@ def run_single_session(game, gamma, lambda_, lossaversion, iSession,
                 'consumer_surplus_history': consumer_surplus_history
             }
 
+    # Q-value stabilization trajectory (only populated when
+    # game.track_q_stabilization is True; see qlearning.simulate_game).
+    q_diag = getattr(game_copy, 'q_diag', None)
+
     if game.demand_type in ["reference", "misspecification"]:
         # Return results
         return {
@@ -641,10 +665,11 @@ def run_single_session(game, gamma, lambda_, lossaversion, iSession,
             'cycle_data': cycle_data,
             'last_observed_reference': last_reference_price,
             'last_reference_prices': last_reference_prices,
-            'last_observed_demand': last_observed_demand
+            'last_observed_demand': last_observed_demand,
+            'q_diag': q_diag
         }
-    
-    
+
+
     # Return results
     return {
         'session_id': iSession,
@@ -652,7 +677,8 @@ def run_single_session(game, gamma, lambda_, lossaversion, iSession,
         'time_to_convergence': t_convergence,
         'last_observed_prices': game_copy.last_observed_prices,
         'optimal_strategies': game_copy.Q.argmax(axis=-1),
-        'cycle_data': cycle_data
+        'cycle_data': cycle_data,
+        'q_diag': q_diag
     }
 
 
@@ -785,9 +811,143 @@ def run_experiment_parallel_gl(game, gamma_values, lambda_values, num_sessions=1
     return game
 
 
+def run_experiment_parallel_gd(game, gamma_values, delta_values, lambda_fixed=0.5,
+                               num_sessions=1000, experiment_name='test',
+                               demand_type='noreference', num_processes=None):
+    """
+    Run experiments over a gamma x delta grid using parallel processing.
+
+    delta (the discount factor) is the only new sweep dimension compared to the
+    gamma-lambda machinery: it is set on `game` before dispatch and flows into
+    each worker through the deep-copy inside run_single_session (which never
+    overrides game.delta). lambda_ is held fixed at lambda_fixed.
+    """
+    if num_processes is None:
+        num_processes = max(1, mp.cpu_count() - 2)
+        print('num_process', num_processes)
+
+    # Run sessions in parallel with error handling
+    print(f"Starting parallel processing with {num_processes} processes for {num_sessions} sessions")
+
+    # Fixed values
+    alpha_fixed = 0.15
+    beta_fixed = 0.1 / 2500
+    loss_aversion_fixed = 1.5
+
+    for i, gamma in enumerate(gamma_values):
+        for j, delta in enumerate(delta_values):
+
+            gamma = round(gamma, 3)
+            delta = round(delta, 3)
+
+            # Check if this gamma-delta combination has already been run
+            run_dir = os.path.join("../Results/experiments", experiment_name, f"gamma_{gamma}_delta_{delta}")
+            stats_file = os.path.join(run_dir, "cycle_statistics.csv")
+
+            if os.path.exists(stats_file):
+                print(f"Skipping gamma_{gamma}_delta_{delta} (already exists in {run_dir})")
+                continue  # Skip running simulation again
+
+            # Update game parameters
+            game.alpha = alpha_fixed
+            game.beta = beta_fixed
+            game.gamma = gamma            # Varying gamma
+            game.delta = delta            # Varying delta (discount factor)
+            game.lambda_ = lambda_fixed   # Fixed reference update rate
+            game.p_minmax = game.compute_p_competitive_monopoly()
+            game.NashProfits,  game.CoopProfits = game.compute_profits_nash_coop()
+            game.p_nash, game.p_coop = game.p_minmax[0], game.p_minmax[1]
+            game.PI = game.init_PI()
+            game.Q = game.init_Q()
+            game.num_sessions = num_sessions
+            game.demand_type = demand_type
+
+            # Game logs
+            if game.common_reference:
+                ref_shape = (1,)  # single common reference price
+            else:
+                ref_shape = (game.n,)  # each firm has its own reference price
+            # Reset and initialize game arrays for the new experiment
+            game.converged = np.zeros(game.num_sessions, dtype=bool)
+            game.time_to_convergence = np.zeros(game.num_sessions, dtype=float)
+            game.index_last_state = np.zeros((game.n, game.memory, game.num_sessions), dtype=int)
+            game.index_last_reference = np.zeros(ref_shape + (game.num_sessions,), dtype=int)
+            game.cycle_length = np.zeros(game.num_sessions, dtype=int)
+            game.cycle_states = np.zeros((game.num_periods, game.num_sessions), dtype=int)
+            game.cycle_prices = np.zeros((game.n, game.num_periods, game.num_sessions), dtype=float)
+            game.cycle_profits = np.zeros((game.n, game.num_periods, game.num_sessions), dtype=float)
+            game.cycle_reference_prices = np.zeros(ref_shape + (game.num_periods, game.num_sessions), dtype=float)
+            game.cycle_consumer_surplus = np.zeros((game.num_periods, game.num_sessions), dtype=float)
+            game.index_strategies = np.zeros((game.n,) + game.sdim + (game.num_sessions,), dtype=int)
+            game.last_observed_prices = np.zeros((game.n, game.memory), dtype=int)  # last prices
+            game.last_observed_reference = np.zeros(ref_shape, dtype=int)
+            game.last_reference_observed_prices = np.zeros((game.n, game.reference_memory), dtype=int)  # last prices
+            game.last_observed_demand = np.zeros((game.n, game.reference_memory), dtype=float)  # last shares for each firm
+
+            #if game.aprint:
+            print(f"\nStarting gamma={gamma}, delta={delta} with {num_processes} processes")
+
+            try:
+                # Run sessions in parallel with error handling
+                with mp.Pool(processes=num_processes) as pool:
+                    session_results = []
+                    for iSession in range(num_sessions):
+                        result = pool.apply_async(run_single_session, args=(game, gamma, lambda_fixed, loss_aversion_fixed, iSession))
+                        session_results.append(result)
+
+                    # ✅ Use improved result collection here
+                    results = []
+                    for k, res in enumerate(session_results):
+                        try:
+                            result = res.get(timeout=600)
+                            results.append(result)
+                        except Exception as e:
+                            print(f"Session {k} failed or timed out: {e}")
+                            continue
+
+                # Process results
+                for result in results:
+                    iSession = result['session_id']
+                    game.converged[iSession] = result['converged']
+                    game.time_to_convergence[iSession] = result['time_to_convergence']
+                    game.index_last_state[:, :, iSession] = result['last_observed_prices']
+                    game.index_strategies[..., iSession] = result['optimal_strategies']
+
+                    # If using reference pricing, store reference-related results
+                    if game.demand_type in ["reference", "misspecification"]:
+                        game.index_last_reference[:, iSession] = result['last_observed_reference']
+
+                    if result['cycle_data'] is not None:
+                        cycle_data = result['cycle_data']
+                        game.cycle_length[iSession] = cycle_data['cycle_length']
+                        cycle_len = cycle_data['cycle_length']
+                        game.cycle_states[:cycle_len, iSession] = cycle_data['visited_states']
+                        game.cycle_prices[:, :cycle_len, iSession] = cycle_data['price_history']
+                        game.cycle_profits[:, :cycle_len, iSession] = cycle_data['visited_profits']
+                        game.cycle_consumer_surplus[:cycle_len, iSession] = cycle_data['consumer_surplus_history']
+                        if game.demand_type in ["reference", "misspecification"]:
+                            game.cycle_reference_prices[:, :cycle_len, iSession] = cycle_data['reference_price_history']
+
+                # Save results for this gamma-delta combination
+                run_dir = save_experiment_gd(game, experiment_name, gamma, delta)
+
+                if game.aprint:
+                    print(f"Completed gamma={gamma}, delta={delta}")
+                    print(f"Results saved in {run_dir}")
+
+            except Exception as e:
+                print(f"Error processing gamma={gamma}, delta={delta}: {str(e)}")
+                import traceback
+                traceback.print_exc()  # Print full error details
+                continue
+
+    print("\nAll experiments completed.")
+    return game
+
+
 
 ###############################################
-######## Run Experiment loss aversion 
+######## Run Experiment loss aversion
 
 
 ###############################
@@ -923,7 +1083,10 @@ def run_experiment_lossaversion(game, lossaversion_values, num_sessions=1000, de
 
 
 
-def run_experiment_parallel_lossaversion(game, lossaversion_values, num_sessions=1000, experiment_name='test',  demand_type = 'noreference', num_processes=None):
+def run_experiment_parallel_lossaversion(game, lossaversion_values, num_sessions=1000, experiment_name='test',  demand_type = 'noreference', num_processes=None,
+                                         alpha=0.15, beta=0.1 / 2500,
+                                         gamma_fixed=1, lambda_fixed=0.5,
+                                         session_timeout=1800):
     """
     Run experiments with different lossaversion values using parallel processing
     """
@@ -935,10 +1098,10 @@ def run_experiment_parallel_lossaversion(game, lossaversion_values, num_sessions
     print(f"Starting parallel processing with {num_processes} processes for {num_sessions} sessions")
     
     # Fixed values
-    alpha_fixed = 0.15
-    beta_fixed = 0.1 / 2500
-    gamma_fixed = 1
-    lambda_fixed = 0.5
+    alpha_fixed = alpha
+    beta_fixed = beta
+    # gamma_fixed / lambda_fixed now function parameters
+
 
     for i, lossaversion in enumerate(lossaversion_values):
         
@@ -1012,14 +1175,17 @@ def run_experiment_parallel_lossaversion(game, lossaversion_values, num_sessions
             with mp.Pool(processes=num_processes) as pool:
                 session_results = []
                 for iSession in range(num_sessions):
-                    result = pool.apply_async(run_single_session, args=(game, gamma_fixed, lambda_fixed, lossaversion, iSession))
+                    result = pool.apply_async(
+                        run_single_session,
+                        args=(game, gamma_fixed, lambda_fixed, lossaversion, iSession,
+                              False, 200000, alpha, beta))
                     session_results.append(result)
                 
                 # ✅ Use improved result collection here
                 results = []
                 for i, res in enumerate(session_results):
                     try:
-                        result = res.get(timeout=600)
+                        result = res.get(timeout=session_timeout)
                         results.append(result)
                     except Exception as e:
                         print(f"Session {i} failed or timed out: {e}")
@@ -1103,9 +1269,22 @@ def run_experiment_parallel_lossaversion(game, lossaversion_values, num_sessions
 def run_experiment_parallel_gamma_only(game, gamma_values, num_sessions=1000,
                                        experiment_name='test',  demand_type='noreference',
                                        num_processes=None, use_reference_pretraining=False,
-                                       T_ref=200000):
+                                       T_ref=200000, lambda_fixed=0.6,
+                                       alpha=0.15, beta=0.1 / 2500,
+                                       lossaversion_fixed=1.5,
+                                       session_timeout=1800):
     """
     Run experiments with different lossaversion values using parallel processing
+
+    lambda_fixed defaults to 0.6 (the paper value); pass another value to sweep
+    the reference-smoothing weight without changing any existing paper run.
+
+    alpha / beta / lossaversion_fixed default to the values that were
+    historically HARD-CODED inside this function (0.15, 4e-5, 1.5) so old
+    behavior is reproducible -- but note these are what every session actually
+    trains with, regardless of the attributes on the ``game`` object passed in
+    (config.csv used to record the parent game's values, which could differ).
+    Pass them explicitly to change.
     """
     if num_processes is None:
         num_processes = max(1, mp.cpu_count() - 2)
@@ -1113,12 +1292,12 @@ def run_experiment_parallel_gamma_only(game, gamma_values, num_sessions=1000,
 
     # Run sessions in parallel with error handling
     print(f"Starting parallel processing with {num_processes} processes for {num_sessions} sessions")
-    
-    # Fixed values
-    alpha_fixed = 0.15
-    beta_fixed = 0.1 / 2500
-    lambda_fixed = 0.6
-    lossaversion_fixed = 1.5
+    print(f"  alpha={alpha}, beta={beta:g}, lambda={lambda_fixed}, "
+          f"lossaversion={lossaversion_fixed}, "
+          f"continuous_reference={getattr(game, 'continuous_reference', False)}")
+
+    alpha_fixed = alpha
+    beta_fixed = beta
 
     for i, gamma in enumerate(gamma_values):
         
@@ -1193,7 +1372,7 @@ def run_experiment_parallel_gamma_only(game, gamma_values, num_sessions=1000,
                     result = pool.apply_async(
                         run_single_session,
                         args=(game, gamma, lambda_fixed, lossaversion_fixed, iSession,
-                              use_reference_pretraining, T_ref),
+                              use_reference_pretraining, T_ref, alpha, beta),
                     )
                     session_results.append(result)
                 
@@ -1201,7 +1380,7 @@ def run_experiment_parallel_gamma_only(game, gamma_values, num_sessions=1000,
                 results = []
                 for i, res in enumerate(session_results):
                     try:
-                        result = res.get(timeout=600)
+                        result = res.get(timeout=session_timeout)
                         results.append(result)
                     except Exception as e:
                         print(f"Session {i} failed or timed out: {e}")
@@ -1234,7 +1413,29 @@ def run_experiment_parallel_gamma_only(game, gamma_values, num_sessions=1000,
 
             # Save results for this gamma-lambda combination
             run_dir = save_experiment_gamma_only(game, experiment_name, gamma)
-            
+
+            # Persist per-session Q-stabilization trajectories when tracked.
+            # Each session's trajectory is an (m, 3) array of
+            # [t, mean|dQ_firm|, mean|dQ_ref|]; also record whether the session
+            # converged and its convergence time for later joint analysis.
+            q_diag_arrays = {
+                f"session_{r['session_id']}": r['q_diag']
+                for r in results
+                if r.get('q_diag') is not None and np.size(r['q_diag']) > 0
+            }
+            if q_diag_arrays:
+                conv_flags = np.array(
+                    [[r['session_id'], int(bool(r['converged'])),
+                      float(r['time_to_convergence'])] for r in results],
+                    dtype=float)
+                np.savez_compressed(
+                    os.path.join(run_dir, "q_stabilization.npz"),
+                    convergence=conv_flags,
+                    **q_diag_arrays)
+                if game.aprint:
+                    print(f"Saved Q-stabilization trajectories for "
+                          f"{len(q_diag_arrays)} sessions.")
+
             if game.aprint:
                 print(f"Completed gamma = {gamma}")
                 print(f"Results saved in {run_dir}")

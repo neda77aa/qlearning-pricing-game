@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+
+# LaTeX build artifacts
+*.aux
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.log
+*.out
+*.toc
+*.bbl
+*.blg
+texput.*
+
+# Local run logs
+*.log
+nohup.out
+
+# Overleaf-synced paper (its own git repo)
+paper_overleaf/
