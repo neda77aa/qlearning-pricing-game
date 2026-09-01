@@ -1,0 +1,673 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{titlesec}
+\usepackage{longtable}
+\usepackage[colorlinks=true,linkcolor=black,urlcolor=blue]{hyperref}
+
+\definecolor{crit}{RGB}{178,34,34}
+\definecolor{med}{RGB}{200,120,0}
+\definecolor{ok}{RGB}{0,120,60}
+
+\newcommand{\crit}[1]{\textcolor{crit}{\textbf{#1}}}
+\newcommand{\med}[1]{\textcolor{med}{#1}}
+\newcommand{\ok}[1]{\textcolor{ok}{#1}}
+
+\titleformat{\section}{\large\bfseries}{\thesection}{1em}{}
+\titlespacing*{\section}{0pt}{1.4em}{0.6em}
+\setlist{itemsep=2pt,topsep=3pt}
+
+\title{\vspace{-2em}\textbf{Referee Feedback: Summary and Revision Notes}\\[0.3em]
+\large MS-MKG-2026-01033 --- ``Consumer Behavior and Algorithmic Price\\ Competition: The Case of Reference Dependence''}
+\author{}
+\date{Internal discussion document \quad\textbullet\quad Decision: \crit{Reject} (Management Science)}
+
+\begin{document}
+\maketitle
+\vspace{-2.5em}
+
+%==================================================================
+\section*{At a glance}
+\addcontentsline{toc}{section}{At a glance}
+
+\textbf{Editor:} Greg Shaffer (DE). Three referee reports $+$ an Associate Editor report; AE recommended
+reject, DE concurred.
+
+\medskip
+\noindent\textbf{The single criticism that drove the decision} (Reviewers~2 and~3, endorsed by the AE):
+
+\begin{quote}
+Under rational expectations the reference price equals the actual price on the equilibrium path
+($r=p$), so the reference term $\gamma(r-p)=0$ there. Hence Proposition~1 reduces to a
+\emph{standard price-elasticity comparative static} rather than a distinct reference-dependence
+result. Rewriting Eq.~(1) as $u = \theta - (1+\gamma)p + \gamma r + \varepsilon$ makes $\gamma$
+look like it is simply rescaling price sensitivity.
+\end{quote}
+
+\noindent Everything else (theory--simulation misalignment, ``open the black box,'' positioning) is
+serious but secondary to this identification concern. \textbf{Our revision must first establish that
+reference dependence does something \emph{beyond} elasticity rescaling} --- theoretically (off the
+equilibrium path) and in the simulations.
+
+%==================================================================
+\section{Decision letter (Shaffer)}
+
+\begin{itemize}
+  \item Topic is important and timely; contribution judged insufficient for \emph{Management Science}.
+  \item Primary concern: \crit{lack of alignment between the theoretical model and the simulation framework}.
+  \item Secondary: concerns about the simulations themselves, and whether the theoretical results are an
+        \crit{artifact of how reference dependence is modeled}.
+\end{itemize}
+
+%==================================================================
+\section{Associate Editor report}
+
+\begin{enumerate}[label=\textbf{AE\arabic*.}]
+  \item \textbf{Theory--simulation alignment (all reviewers).} Theory is a static duopoly (Nash);
+        simulations are dynamic algorithmic learning. R2/R3: the paper essentially studies
+        \emph{increased price sensitivity}, not reference dependence. R3: under rational expectations
+        the main result is a standard elasticity comparative static.
+        \emph{$\Rightarrow$ a dynamic model is needed.}
+  \item \textbf{Concerns about the simulations.} R1: without human subjects, can simulations establish
+        the implications of consumer biases? (Noted as \emph{not} a major limitation \emph{if} the
+        theory were strong.) R2: multi-agent learning $\Rightarrow$ multiple equilibria; uniqueness not
+        guaranteed. R3: simulations alone cannot establish that reference dependence curbs collusion,
+        and do not reveal the driving mechanism.
+  \item \textbf{Overall.} Substantially strengthen the theory, integrate theory and simulation more
+        closely, and provide stronger evidence for the mechanisms. ``Rethink both the model and the
+        analyses.''
+\end{enumerate}
+
+%==================================================================
+\section{Reviewer 1}
+
+\begin{enumerate}[label=\textbf{R1.\arabic*.}]
+  \item \textbf{Theory--simulation misalignment.} Simulations use $n$ firms in a Markov decision
+        process; theory is a duopoly with static Nash. Extend the theory to multinomial logit with
+        $n$ firms and characterize a \textbf{Markov perfect equilibrium} via dynamic programming.
+  \item \textbf{Single $\gamma$ ignores loss-aversion asymmetry.} Prospect theory: losses loom larger
+        than gains, so effects should differ above vs.\ below the reference. The ``prices are usually
+        below reference'' defense assumes consumers don't communicate and firms fully set references.
+  \item \textbf{AI motivation not modeled.} AI motivates the paper but nothing in the theory is
+        AI-specific; algorithmic pricing is not unique to AI. If AI is tangential, other channels
+        (e.g.\ social media shaping reference prices) are equally relevant. Align motivation and analysis.
+  \item \textbf{Exogenous reference price.} The disciplining result depends on references being outside
+        firms' control. In practice firms manipulate references (e.g.\ MSRP). Endogenous reference-setting
+        could qualitatively reverse the results.
+  \item \textbf{Simulations cannot capture human biases.} Recommends lab experiments with human subjects
+        to validate the predictions.
+\end{enumerate}
+
+%==================================================================
+\section{Reviewer 2}
+
+\begin{enumerate}[label=\textbf{R2.\arabic*.}]
+  \item \crit{$\gamma$ confounds price sensitivity and reference dependence (the ``fundamentally
+        critical'' point).} $u = \theta - (1+\gamma)p + \gamma r + \varepsilon$: any linear utility
+        cannot isolate a distinct reference effect. If $\gamma$ is just price sensitivity, the paper
+        reduces to ``more price-sensitive consumers $\Rightarrow$ lower prices, profits, collusion.''
+        \textbf{Proposed test:} run a benchmark with $u = \theta - \beta p$ (no reference term) and show
+        results differ qualitatively --- though they are skeptical they will.
+  \item \textbf{Proposition~2 overclaims.} Appendix~A.1.4 establishes the sign of
+        $d\bar\delta/d\gamma$ only \emph{locally at} $\gamma=0$ and in \emph{limiting regimes}
+        ($\mu\!\to\!\infty$, $c\!\to\!\theta$, $\mu\!\to\!0$). It does not prove the global claim that
+        for ``large enough'' $\mu$ or $c$ collusion gets easier over the whole $\gamma\in[0,3]$ range.
+  \item \textbf{Q-learning convergence overclaiming \& equilibrium selection.} The environment is a
+        multi-agent Markov game with an evolving reference process --- not a stationary single-agent MDP
+        --- so Watkins--Dayan guarantees do not apply. Equilibrium multiplicity means a selection
+        mechanism operates silently. Rewrite the convergence discussion; be transparent about selection.
+  \item \textbf{Positioning.} The introduction reads as an AI-consumer-agent paper, but $\sim$90\% is
+        about reference dependence; AI agents appear only in Section~7, and it is unclear that reference
+        prices matter for the AI-agent interplay.
+\end{enumerate}
+
+%==================================================================
+\section{Reviewer 3}
+
+\begin{enumerate}[label=\textbf{R3.\arabic*.}]
+  \item \crit{What does reference dependence add beyond elasticity rescaling?} With rational
+        expectations $r=p$ on path, so $\gamma(r-p)=0$ and Prop.~1 is the standard ``more elastic demand
+        $\Rightarrow$ lower markups'' result (consistent with K\H{o}szegi--Rabin: gain--loss utility is
+        muted when outcomes are anticipated). The \emph{simulations} have cycles where $r\neq p$, so the
+        simulated decline may come from realized reference gaps --- a \emph{different} mechanism than the
+        theory. Need a model where $r$ and $p$ can differ on the equilibrium path (uncertainty, dynamic
+        reference formation).
+  \item \textbf{Claims exceed the evidence.} ``Reference dependence is a competitive safeguard'' rests
+        on one specific Q-learning environment with many modeling choices. Provide stronger theory or
+        real-world validation; otherwise narrow the claim (which then may not clear the MS bar).
+  \item \textbf{Open the black box.} The paper reports outcomes but not learned policies. Are algorithms
+        colluding less? Different punishment strategies? Weaker deviation incentives? Do
+        Calvano-et-al.-(2020)-style diagnostics: best-response / Q-loss checks and forced-deviation
+        impulse responses (deviation $\to$ punishment $\to$ recovery).
+  \item \textbf{``Price Gain'' is not a clean collusion measure.} Its denominator
+        $(p^{\text{col}}-p^{\text{comp}})$ moves with $\gamma$, so Price Gain can rise even as prices
+        fall. Use direct measures: deviation incentives, punishment behavior, $Q$-value differences.
+  \item \textbf{Dynamic foundation \& convergence reporting.} Convergence guarantees do not apply;
+        ideally give conditions for convergence to fixed points/cycles vs.\ $\gamma$. At minimum report:
+        fixed-point vs.\ cycle rates, handling of non-converged runs, sensitivity to the convergence
+        criterion, grid size, memory, initial $Q$, $\alpha$, $\beta$.
+        \med{Flags an inconsistency:} baseline $\beta=4\times10^{-5}$ (Sec.~5.1) lies outside the
+        robustness grid $[2.8\times10^{-7},\,2\times10^{-5}]$ (App.~C.2).
+  \item \textbf{Narrow the scope.} Results are conditional on two symmetric firms, one algorithm, and
+        selected parameters --- and the paper's own theory says collusion can get \emph{easier} under
+        some conditions. Justify $\gamma\in[0,3]$ empirically with a mapping to the
+        reference-dependence / loss-aversion literature.
+  \item \textbf{AI-agent implications overreach.} The $2\times2$ welfare exercise uses two extreme
+        $\gamma$ values, some differences are tiny (0.722 vs.\ 0.708), with no sensitivity analysis or
+        uncertainty quantification. Clarify individual vs.\ collective adoption; separate the positive
+        finding from the normative design recommendation.
+\end{enumerate}
+
+\noindent\textbf{R3's overall verdict:} the concerns are not independent; addressing them would require a
+dynamic theory isolating what reference dependence adds, convergence analysis tied to the learning
+dynamics, real-world validation, or a much deeper computational analysis --- ``a different paper rather
+than a revision.''
+
+%==================================================================
+\section{Cross-cutting themes (how the points cluster)}
+
+\begin{enumerate}[label=\textbf{\Alph*.}]
+  \item \crit{Identification: reference dependence vs.\ elasticity rescaling.} (R2.1, R3.1, AE1)
+        --- the decisive issue.
+  \item \crit{Theory--simulation alignment / need for a dynamic model.} (R1.1, R3.1, R3.5, AE1)
+  \item \textbf{Mechanism transparency in the simulations.} (R3.3, R3.4, AE2)
+  \item \textbf{Theory hygiene: Prop.~2 scope; Q-learning overclaiming; equilibrium selection.}
+        (R2.2, R2.3, R3.5)
+  \item \textbf{Scope / calibration of claims.} (R3.2, R3.6, R2.1)
+  \item \textbf{Positioning: AI framing vs.\ reference-dependence content.} (R1.3, R2.4, R3.7)
+  \item \textbf{Modeling extensions.} loss-aversion asymmetry (R1.2), endogenous references / MSRP
+        (R1.4), $n$ firms (R1.1).
+  \item \textbf{External validation.} human-subject / field data (R1.5, R3.2).
+\end{enumerate}
+
+%==================================================================
+\section{Proposed responses and feasibility}
+
+\emph{Feasibility judged against the existing codebase.} Legend:
+\ok{Easy} (small code/writing), \med{Moderate} (new experiments/runs), \crit{Heavy} (new theory/section).
+
+\renewcommand{\arraystretch}{1.3}
+\begin{longtable}{@{}p{0.055\textwidth}p{0.45\textwidth}p{0.42\textwidth}@{}}
+\toprule
+\textbf{Pts} & \textbf{Proposed response} & \textbf{Feasibility / notes} \\
+\midrule
+\endhead
+R2.1, R3.1 &
+Add a pure price-sensitivity benchmark $u=\theta-(1+\gamma)p$ (no $r$ in demand \emph{or} firm state);
+overlay on the reference model at equal on-path elasticity. Divergence off-path = the identified
+reference effect. &
+\ok{Easy}: $\sim$15-line \texttt{demand\_type} in \texttt{init.py}; reuse \texttt{gamma\_only} pipeline.
+\emph{This directly answers the decisive point.} \\
+
+R2.1, R3.1 &
+Reframe the mechanism around \textbf{off-path reference gaps}: the cheating-deviation and $\bar\delta$
+terms load on $\gamma(r-p^{\text{cht}})\neq 0$ even under rational expectations. Make this the headline
+theoretical distinction from ``pure elasticity.'' &
+\ok{Easy--\med{Mod}}: writing $+$ light algebra; no new tooling. \\
+
+R3.1 &
+Quantify realized $|r-p|$ gaps in simulations and decompose the price decline into elasticity vs.\
+reference-gap components. &
+\ok{Easy}: cycle prices \& reference prices already saved per session. \\
+
+R1.1, R3.1, R3.5, AE1 &
+Build a \textbf{dynamic (Markov-perfect) benchmark}: with exponential-smoothing reference formation,
+$r_{t+1}=\lambda r_t+(1-\lambda)\sum_i D_i p_i$ is a deterministic state transition; solve the duopoly
+MPE by value iteration on the existing grid. Compare MPE prices to Q-learning across $\gamma$. &
+\crit{Heavy} (new section) --- but this is the \emph{single change that best answers the AE}. Tractable
+computationally; a full closed-form MPE is not required. \\
+
+R3.3, R3.4 &
+Open the black box: save per-session $Q$; report best-response / $Q$-loss of converged strategies and
+forced-deviation impulse responses (punishment depth, recovery length) vs.\ $\gamma$. Add a direct
+collusion measure (one-shot deviation gain from the \texttt{PI} tensor) alongside/instead of Price Gain. &
+\med{Moderate}: cycle replay machinery exists; need to persist $Q$ before it is overwritten in
+\texttt{run\_sessions}. \\
+
+R2.2 &
+Restate Prop.~2 honestly as local/limiting; add a \emph{numerical global} $\bar\delta(\gamma,\mu,c)$
+surface. &
+\ok{Easy}: extend \texttt{compute\_p\_competitive\_monopoly} with a cheating-price \texttt{fsolve}; one figure. \\
+
+R2.3, R3.5 &
+Rewrite convergence discussion: drop Watkins--Dayan, frame as a Markov game with multiplicity, describe
+Q-learning as an empirical selection device; report selection statistics and criterion sensitivity. &
+\ok{Easy}: mostly writing; convergence/cycle stats already collected. \\
+
+R3.5 &
+Fix the $\beta$ inconsistency: paper says $4\times10^{-5}$, code default is $4\times10^{-6}$
+(\texttt{init.py:43}), which \emph{is} inside the robustness grid. &
+\ok{Easy}: one-line manuscript fix; confirm the Fig.~3 runs' value. \\
+
+R1.2 &
+Promote loss aversion ($\phi>1$) toward the baseline rather than an extension. &
+\ok{Easy}: already implemented (\texttt{lossaversion} kwarg, Sec.~6.2). \\
+
+R1.4 &
+Add endogenous reference manipulation (firm-announced MSRP entering reference formation) as an extension. &
+\med{Moderate}: action space $k^2$ per firm; still tabular. New section. \\
+
+R1.3, R2.4, R3.7 &
+Reposition: either (a) demote AI to the discussion and lead with ``behavioral demand disciplines
+algorithmic collusion,'' or (b) commit to the agent framing via a mixed-population analysis (share of
+rational $\gamma=0$ vs.\ behavioral consumers). Strengthen the Sec.~7 welfare exercise (full $\gamma$
+grid, CIs, individual vs.\ collective). &
+(a) \ok{Easy}; (b) \med{Moderate} (mixture demand). \textbf{Decision needed with supervisors.} \\
+
+R1.5, R3.2 &
+External validation: lab experiment and/or field data. &
+\crit{Out of scope} for the repo. AE says human subjects are secondary \emph{if} theory is strong, so
+prioritize the dynamic theory instead. \\
+\bottomrule
+\end{longtable}
+
+%==================================================================
+\section{Suggested priorities for the meeting}
+
+\begin{enumerate}
+  \item \crit{Decide the core reframing:} anchor the paper on the \textbf{off-path reference-gap
+        mechanism} (what reference dependence adds beyond elasticity). This is the make-or-break move.
+  \item \crit{Commit to a dynamic benchmark} (computational MPE) to align theory with the simulations
+        --- the AE's central ask.
+  \item \textbf{Run the $u=\theta-\beta p$ benchmark} (cheap) as the concrete rebuttal to R2.1.
+  \item \textbf{Add mechanism diagnostics} (impulse responses, deviation incentives) --- R3.3/R3.4.
+  \item \textbf{Positioning decision:} lead with reference dependence, or build out the AI-agent analysis?
+  \item \textbf{Note on strategy:} this was a reject (not R\&R), and R3 says the fixes ``amount to a new
+        paper.'' Plan a \textbf{fresh submission} (MS resubmission after major restructuring, or an
+        alternative outlet) rather than a point-by-point rebuttal.
+\end{enumerate}
+
+%==================================================================
+\clearpage
+\section{Detailed proposal: modeling AI consumer agents via LLM measurement}
+
+\emph{This is a concrete plan for the extension the referees most wanted (R1.3, R2.4, R3.7): putting AI
+consumer agents into the \textbf{analysis}, not just the motivation. It requires \textbf{no change to the
+pricing/RL architecture}. This version incorporates two rounds of internal design review (identification,
+elicitation, confounds, and simulation-integration concerns).}
+
+%----------------------------------------------------------
+\subsection*{Positioning: what this is and is not}
+
+\crit{This is an extension, not the fix for the decisive rejection reasons.} It does \emph{not} resolve
+(i) the dynamic/MPE theory gap, (ii) the on-path elasticity-vs-reference identification \emph{in the model},
+or (iii) open-the-black-box mechanism diagnostics. Build order: \textbf{(1)} dynamic theory $+$ elasticity
+identification, \textbf{(2)} mechanism diagnostics, \textbf{(3)} this LLM extension --- on top of the
+foundation, not instead of it.
+
+\smallskip
+\noindent\textbf{Honest odds.} Before scaling, we run a small pilot (the \emph{gating prototype}, defined
+step by step below) with five pass/fail checks. We rate the chance that all five come back ``pass'' at
+roughly 60--70\%; the two most likely failure modes --- the \emph{waiting} confound and the
+\emph{forecast-too-good} degeneracy --- are named below with designed mitigations. Either failure would be
+discovered in a $\sim$\$5 pilot rather than after building the full study, and every outcome, including a
+null, is informative (see ``Why every outcome is a result'').
+
+%----------------------------------------------------------
+\subsection*{The problem it solves}
+
+The obvious move --- add AI agents as a demand segment with a chosen reference sensitivity $\gamma_a$ ---
+\crit{begs the paper's own question}. We do not know whether an AI agent is reference-dependent, or its
+price sensitivity; \emph{setting} $\gamma_a$ assumes the answer. Instead we \textbf{measure} the agent's
+revealed behavior, then feed it into the equilibrium model. This matches the cited literature (Ross et al.\
+2024; Bini et al.\ 2026): LLMs are ``neither fully human nor fully rational,'' so behavior must be measured.
+It also occupies an open niche: Fish et al.\ (2024) study LLMs as \emph{sellers}; LLM-as-\emph{consumer}
+measurement fed into an equilibrium pricing model does not yet exist.
+
+%----------------------------------------------------------
+\subsection*{Design principle: measure, then simulate (decouple)}
+
+An LLM cannot sit inside the Q-learning training loop (cost analysis below: $\sim$$10^8$--$10^9$ calls). So:
+\begin{itemize}
+  \item \textbf{Phase A (LLM, once):} estimate the agent's choice rule --- price coefficient,
+        history-sensitivity parameters, and reference-formation rule --- from its choices and forecasts.
+        Cheap; no market loop.
+  \item \textbf{Phase B (tabular, as now):} insert the estimated \emph{choice rule and reference rule} into
+        the existing simulation for equilibrium prices, profits, welfare.
+\end{itemize}
+
+\noindent\crit{Unit of analysis.} The estimated parameters are \textbf{not ``the LLM's $\gamma$.''} They
+characterize a \textbf{shopping policy} induced by a specific
+\emph{model $\times$ system instruction $\times$ memory design $\times$ task environment}. This is a
+feature: it makes reference dependence an \emph{engineered design object}, not a fixed trait. $\gamma$
+remains a \emph{knob} in the tabular model; the LLM supplies estimated policies for chosen configurations.
+
+%----------------------------------------------------------
+\subsection*{Phase A step by step (the operational pipeline)}
+
+For a reader coming to this fresh, here is exactly what we do, in order:
+
+\begin{enumerate}[label=\textbf{Step \arabic*.},leftmargin=2.1cm]
+  \item \textbf{Build the history library from data we already have.} Take the converged sessions of the
+        paper's baseline 30-$\gamma$ runs (archived in \texttt{paper\_results}, \texttt{cycle\_prices}) and
+        extract representative price paths: steady price ($L{=}1$), high--low alternation ($L{=}2$),
+        four-period cycle ($L{=}4$), Edgeworth cycle ($L{=}6$). Add two synthetic patterns the runs do not
+        provide --- a trend and a volatile path --- because they are needed for identification (Step~6
+        check). Result: $\sim$8 history patterns, each a window of recent prices, e.g.\
+        $[1.50,\,1.70,\,1.50,\,1.70,\,1.50]$.
+  \item \textbf{Set the agent's memory $m$} = how many past periods the LLM is shown. $m{=}0$: no history
+        at all (only today's two prices --- this agent \emph{cannot} form a reference); $m{=}3$: the last 3
+        periods; $m{=}5$: the last 5. Memory is a design knob of the agent and one of our treatments.
+  \item \textbf{Build scenarios.} One scenario $=$ (history pattern, $m$, today's prices $(p_1,p_2)$,
+        customer-taste draw, waiting arm, valuation arm). Today's prices are sometimes \emph{on} the
+        pattern (the expected next leg of the cycle) and sometimes \emph{off} it (a surprise: the cycle
+        says \$1.50 comes next but we show \$1.85) --- the surprises create the $r\neq p$ variation that
+        identifies $\gamma$. The taste draw is a line such as ``your customer mildly prefers Brand~A''
+        (randomized symmetrically). The waiting arm is ``can wait one period'' vs.\ ``must buy today.''
+        Crossing these gives a few hundred to $\sim$1{,}000 unique scenarios.
+  \item \textbf{Ask, under three elicitation conditions.}
+        \textbf{(A) Natural choice:} history $+$ today's offers $\to$ ``A, B, or NONE?'' --- no forecast
+        mentioned.
+        \textbf{(B) Forecast-then-choice:} same call, but first ``what price do you expect next period?'',
+        then the choice (included only to test whether asking the forecast \emph{changes} behavior).
+        \textbf{(C) Independent forecast:} two \emph{separate} call sets --- Set~1 sees only the history and
+        forecasts next period's price (no shopping); Set~2 sees the same history and shops (no forecast
+        question). The averaged Set-1 forecast per history becomes $\hat r(h)$, used to analyze Set-2
+        choices.
+  \item \textbf{Query.} For choice calls, read the token logprobs of ``A''/``B''/``NONE'' $\to$ choice
+        probabilities per scenario (one call each, low noise). For forecast calls, read the predicted
+        number.
+  \item \textbf{Estimate.} (i) From Set~1: fit the forecast rule $\hat r(h)$ --- exponential smoothing
+        (recover $\hat\lambda$) or cycle-anticipating? (ii) From the choices: fit the competing choice
+        models (pure price; reference gain/loss using $\hat r$; last-price; deal; trend; waiting) by
+        maximum likelihood and compare on \emph{held-out} scenarios. Output per (model, prompt, $m$, arm)
+        configuration: $\hat\beta,\hat\gamma_G,\hat\gamma_L,\hat\mu^{A}$, the winning specification, and
+        the reference rule $\hat r(h)$ for Phase~B.
+\end{enumerate}
+
+%----------------------------------------------------------
+\subsection*{Whose demand curve is it? The constructed-population design}
+
+A single LLM is \emph{one} agent; the softness of its token probabilities is \textbf{not} a population of
+heterogeneous consumers. A referee will ask why $P(\text{buy }A)$ from one model's logprobs should equal a
+market share $D_A$. Our answer --- which \emph{also} solves the horizontal-differentiation problem --- is to
+\textbf{construct the population ourselves}:
+
+\begin{itemize}\setlength\itemsep{2pt}
+  \item Each call carries a randomly drawn \emph{user taste}: ``your customer mildly/strongly prefers
+        brand~A'' (or B), drawn symmetrically across firms and independently across calls. This is the
+        experimental analog of the paper's Gumbel taste shock $\varepsilon_{n,i}$: \emph{horizontal} taste
+        --- no option is universally better --- so it does not smuggle in vertical quality.
+  \item Market demand is then the \emph{average of the agent's choices over the induced taste
+        distribution}: many delegated shoppers, each serving a different customer --- exactly what a
+        deployed shopping agent does at scale.
+  \item What we \emph{measure} is the agent's \textbf{exchange rate between stated taste and dollars}: how
+        large a price premium it will pay to honor the customer's preference. That exchange rate (together
+        with the taste dispersion we impose) pins the AI segment's \emph{effective} differentiation
+        parameter $\hat\mu^{A}$ --- rather than pretending logprob noise is taste heterogeneity.
+\end{itemize}
+
+\noindent This resolves the earlier open question on differentiation: taste lives in the \emph{customer
+profile we randomize}, not in product quality claims. The remaining open item is only the neutral
+\emph{wording} of the profile (see prompt principles below).
+
+%----------------------------------------------------------
+\subsection*{Phase A --- what we estimate (with gain/loss asymmetry)}
+
+We do \emph{not} force the paper's symmetric single-$\gamma$ form. Estimate a kinked gain--loss response
+(this also directly answers \med{R1.2}):
+\[
+U_i=\alpha_i-\beta p_i+\underbrace{\gamma_G\,(r_i-p_i)_+}_{\text{gain: below reference}}
+-\underbrace{\gamma_L\,(p_i-r_i)_+}_{\text{loss: above reference}}+\varepsilon_i,
+\qquad\text{test } \gamma_L>\gamma_G,
+\]
+recovering $\hat\alpha,\hat\beta,\hat\gamma_G,\hat\gamma_L,\hat\mu^{A}$ (with SEs) per agent configuration
+--- \emph{plus} the reference-formation rule $\hat r(h)$ from the forecast task (needed for Phase~B; see
+below).
+
+%----------------------------------------------------------
+\subsection*{Phase A --- experimental design}
+
+\textbf{1. Realistic histories (not constant prices).} Markets converge to \emph{cycles} (Fig.~9/10), so
+the reference is an \emph{anticipated} price, not a flat average. Draw the history library from the actual
+converged price paths in \texttt{paper\_results} (\texttt{cycle\_prices}): fixed point ($L{=}1$), 2-period
+($L{=}2$), 4-period ($L{=}4$), Edgeworth ($L{=}6$) --- \emph{plus trend and volatile patterns, which are
+required for identification} (see the forecast-too-good caveat below).
+
+\smallskip
+\textbf{2. Horizontal differentiation via randomized customer taste.} Resolved by the
+constructed-population design above: each scenario randomizes the customer's brand taste symmetrically
+across firms. No quality scores, no vertical ranking.
+
+\smallskip
+\textbf{3. Principal--agent framing: robust but not nudging (\med{wording still to settle}).} The agent
+shops \emph{for a user}, not for itself. Prompt principles:
+\begin{itemize}\setlength\itemsep{1pt}
+  \item \emph{Never} mention reference prices, deals, fairness, or comparisons to the past --- nothing that
+        leaks the hypothesis.
+  \item \emph{Do not} state a precise valuation (``worth exactly \$2.00''): that reduces the task to
+        arithmetic and can erase the very history-sensitivity we want to measure. Run \textbf{two valuation
+        arms}: (i) explicit valuation (clean $\hat\beta$; tests whether history \emph{still} moves choices
+        when value is known) and (ii) no valuation (the realistic case, where a reference is the agent's
+        natural proxy for ``is this a good price?''). If $\hat\gamma$ appears in (ii) but not (i), that is a
+        \emph{finding}: reference dependence substitutes for missing valuation information, and agent
+        designers can remove it by supplying valuations.
+  \item Candidate skeleton (wording to be finalized): ``You are a shopping assistant buying [product] for a
+        customer. [Taste line.] [History block, per arm.] Today's options: Store~A \$$p_1$, Store~B
+        \$$p_2$. Reply with A, B, or NONE.''
+\end{itemize}
+
+\smallskip
+\textbf{4. The LLM never sees ``$r$''.} The reference is induced by the displayed history; the LLM only
+chooses. Move the history \emph{independently} of today's prices, so at fixed $(p_1,p_2)$ any choice shift
+is attributable to history, not $\beta$. Cycles do this naturally (today = high leg vs.\ low leg), and
+\crit{cycles are the $r\neq p$ regime R3.1 said genuine reference dependence lives in.} Read choice
+probabilities from \textbf{token logprobs} where available (one call/scenario, low noise).
+
+\smallskip
+\textbf{5. The no-waiting arm (kills the waiting confound by design).} Our honest prior is that a capable
+LLM shown a $1.50/1.70$ cycle with today on the high leg will \emph{reason about the cycle and skip} ---
+rational intertemporal substitution, \textbf{not} reference-dependent utility (the paper's consumers cannot
+time purchases). So include an arm where waiting is impossible: \emph{``the purchase must be completed
+today; the customer needs the product tonight.''} If the history effect \emph{survives} when waiting is
+ruled out, it cannot be waiting. Comparing the with- and without-waiting arms separates the two mechanisms
+--- and the size of the waiting response is itself a reportable behavior of AI shoppers.
+
+\smallskip
+\textbf{6. Identification caveat: a forecaster that is too good destroys identification.} $\gamma_G$ and
+$\gamma_L$ are identified only if today's price falls both \emph{above and below} the agent's own reference
+$\hat r$. If the LLM forecasts a clean cycle perfectly, then $\hat r$ equals today's leg, $r-p\approx0$
+everywhere, and \emph{nothing} is identified --- ironically, the better the agent's forecasting, the worse
+our identification. Mitigations: (i) include trend, volatile, and phase-ambiguous histories where forecasts
+are necessarily imperfect; (ii) include out-of-pattern ``surprise'' prices (today's price deviates from the
+learned cycle --- exactly the off-path deviations that matter in the theory); (iii) verify ex post that the
+realized $|\hat r - p|$ distribution has support on both sides of zero.
+
+%----------------------------------------------------------
+\subsection*{Separate the forecast from the choice (avoid manufacturing the effect)}
+
+Asking ``what do you expect next?'' immediately before ``buy?'' can \crit{create} the reference dependence
+we are trying to detect (salience/demand effect). Use three elicitation conditions:
+\begin{enumerate}[label=(\Alph*)]
+  \item \textbf{Natural choice} --- history $+$ offers, choose. No forecast asked.
+  \item \textbf{Forecast-then-choice} --- forecast, then choose (same call).
+  \item \textbf{Independent forecast} --- a \emph{separate} set of calls forecasts prices; choice calls use
+        identical histories \emph{without} being asked to forecast. Use the averaged independent forecast
+        as $\hat r$.
+\end{enumerate}
+Condition~(C) is the defensible one for estimation. If the history effect appears only in (B), it is
+elicitation-induced, not a genuine shopping behavior. The (C) forecasts serve double duty: they are also
+the data from which we fit the agent's \emph{reference-formation rule} $\hat r(h)$ for Phase~B.
+
+%----------------------------------------------------------
+\subsection*{Confounds and model comparison (the go/no-go)}
+
+\crit{A nonzero history effect need not be reference dependence.} It could be strategic waiting, trend
+extrapolation, a ``good deal'' heuristic, a quality signal, or manipulation-suspicion. \med{The waiting
+confound is existential} --- hence the dedicated no-waiting arm (design item~5) \emph{plus} model
+comparison. Estimate competing specifications and select on \textbf{held-out} predictive accuracy
+(train/test on disjoint histories, levels, cycle patterns, products):
+\begin{itemize}\setlength\itemsep{1pt}
+  \item pure price: $U_i=\alpha_i-\beta p_i$;
+  \item expected-price reference (gain/loss): $+\,\gamma_G(\hat r_i-p_i)_+-\gamma_L(p_i-\hat r_i)_+$;
+  \item last-price reference: $+\,\gamma_L(p_{i,t-1}-p_i)$;
+  \item range / ``deal'': $+\,\gamma_{\min}(p_{\min,h}-p_i)+\gamma_{\max}(p_{\max,h}-p_i)$;
+  \item trend: $+\,\tau\cdot\text{trend}_h$;
+  \item \textbf{waiting value} in the outside option: $U_0=\alpha_0+\omega(\hat r-p_{\min,t})$ ---
+        estimated in the \emph{with-waiting} arm; should shrink toward zero in the no-waiting arm.
+\end{itemize}
+The reference model earns its place only if it beats these out of sample.
+
+%----------------------------------------------------------
+\subsection*{Information-set arms (memory as the design lever)}
+
+Memory is what makes a reference \emph{possible}, so the information set is the treatment:
+\begin{enumerate}[label=(\alph*)]
+  \item \textbf{No-history} --- today's prices only. \med{Baseline price-response function; with no history
+        variation $\gamma$ is \emph{not identified} here --- a benchmark, not a ``$\gamma=0$'' validity
+        test.}
+  \item \textbf{Price-history} --- $+$ observed price path. Observation-based reference.
+  \item \textbf{Transaction-history} --- $+$ ``last period you bought from B at \$1.60.'' Paid-price /
+        status-quo reference.
+\end{enumerate}
+The across-arm comparison \crit{is} a core contribution: \emph{giving a consumer AI agent memory can
+manufacture reference dependence, and which memory determines which reference forms} (arm (b) $\approx$
+common reference; arm (c) $\approx$ transaction/firm-specific, Section~6.3.1).
+
+%----------------------------------------------------------
+\subsection*{Phase B --- market simulation with AI adoption}
+
+\textbf{What Phase B actually needs (previously under-specified).} The simulation needs \emph{two} objects
+for the AI segment, not one:
+\begin{enumerate}
+  \item the \textbf{choice rule}: $(\hat\alpha,\hat\beta,\hat\gamma_G,\hat\gamma_L,\hat\mu^{A})$ --- the
+        full vector, not a $\hat\gamma/\hat\beta$ ratio;
+  \item the \textbf{reference-formation rule} $\hat r(h)$: what reference the AI segment carries \emph{as
+        the simulated market evolves}. We obtain it by fitting the Condition-(C) forecasts to candidate
+        rules (e.g.\ exponential smoothing $\Rightarrow$ an estimated $\hat\lambda^{A}$; or a
+        cycle-anticipating rule), and implement it with the code's existing
+        \texttt{ref\_prediction} machinery.
+\end{enumerate}
+
+\noindent\textbf{Implementation v1 (keeps the code tractable).} If humans and AI agents carry
+\emph{different} reference processes, the firms' state must track two reference variables and the state
+space multiplies by $k$ ($15\times$). Version~1 therefore uses a \textbf{shared common reference process}
+for both segments, with segments differing in $(\beta,\gamma_G,\gamma_L)$; changes are contained to
+\texttt{demand()}/\texttt{foc()} and the profit tensor in \texttt{init.py}, with no state-space blowup.
+Separate reference processes are a v2 extension, to be run only if the fitted $\hat r(h)$ rules differ
+materially between segments.
+
+\smallskip
+\noindent\textbf{Adoption, not replacement.} With AI-agent share $\eta\in[0,1]$,
+\[
+D_i(\eta)=(1-\eta)\,D_i^{H}\;+\;\eta\,D_i^{A},
+\]
+sweep $\eta$ (the mixture idea, now \emph{earned} because $D_i^A$ is measured, not assumed). Vary $\eta$,
+memory design, agent objective, and model configuration; report prices, profits, consumer surplus, purchase
+delay, and collusion diagnostics. Keep the Fig.~3 $\gamma$-axis placement only as an intuition visual, not
+the structural mapping. The $\eta$-sweep is the direct answer to \med{R3.7} (individual vs.\ collective
+adoption). \med{Welfare bookkeeping:} evaluate the AI segment's surplus under both the bias and preference
+conventions of Section~7, so the $2\times2$ logic carries over with measured inputs.
+
+%----------------------------------------------------------
+\subsection*{Phase C --- dynamic validation (cheap)}
+
+Do not retrain with an LLM in the loop. Instead: train seller algorithms against the \emph{estimated} AI
+demand; freeze the learned seller policies; replay a manageable set of market states; ask the \emph{actual}
+LLM to choose in those states; compare to the fitted demand. This tests whether the static estimate
+survives in dynamically generated states ($\sim$$10^3$--$10^4$ calls; see cost table).
+
+%----------------------------------------------------------
+\subsection*{Why every outcome is a result}
+
+\begin{itemize}\setlength\itemsep{1pt}
+  \item $\hat\gamma\approx0$: agentic commerce \emph{removes} the consumer-side discipline human reference
+        dependence provided --- a policy warning.
+  \item $\hat\gamma>0$: the safeguard survives delegation --- reassuring, and quantified.
+  \item Effects differ across memory arms: the \textbf{design-lever result} --- agent memory architecture
+        is a competition-policy variable.
+  \item Large waiting response: a measured behavior of AI shoppers with its own pricing implications.
+  \item Prompt-unstable $\hat\gamma$: evidence that deployed agent shopping policies are fragile ---
+        itself relevant to the consumer-agent design debate.
+\end{itemize}
+
+%----------------------------------------------------------
+\subsection*{Cost analysis}
+
+\renewcommand{\arraystretch}{1.25}
+\begin{center}
+\begin{tabular}{@{}p{0.38\textwidth}p{0.15\textwidth}p{0.13\textwidth}p{0.24\textwidth}@{}}
+\toprule
+\textbf{Design} & \textbf{LLM calls} & \textbf{Cost} & \textbf{Verdict} \\
+\midrule
+\ok{Phase A (measure), few models} & $\sim$3--10k & \ok{$\sim$\$10--50} & \ok{do this} \\
+Phase C dynamic validation (freeze sellers, replay) & $\sim$10$^3$--10$^4$ & $\sim$\$20--100 &
+feasible check \\
+In-loop \emph{training}, 1 $\gamma$ (LLM's own), 200 sessions & $\sim$10$^8$ & \crit{\$100--500k} &
+\crit{infeasible} \\
+In-loop training, full sweep (200 sess $\times$ 30 $\gamma$) & $\sim$3$\times$10$^9$ & \crit{\$3--15M} &
+\crit{infeasible} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent Drivers: $\sim$5$\times10^5$ periods to convergence $\times$ sessions, one LLM call/period.
+\med{Because an LLM has its own $\gamma$, in-loop is one $\gamma$ not 30 --- but periods$\times$sessions
+still makes training infeasible.} Phase-A traps: avoid reasoning models with long chains-of-thought (force
+terse output); prefer logprob-capable models (sampling is the expensive part). Sample size is set by the
+number of \emph{unique scenarios}, not total calls --- design the scenario matrix first and check precision
+at the scenario level.
+
+%----------------------------------------------------------
+\subsection*{Gating prototype --- do this before scaling}
+
+The prototype is simply \textbf{Steps 1--6 at miniature scale}: 4 history patterns (incl.\ one trend, one
+volatile) $\times$ 5 price configs $\times$ 2 customer-taste draws $\times$ $m\in\{0,3\}$ $\times$
+\{waiting, no-waiting\}, elicitation conditions (A) and (C), one logprob-capable model --- a few hundred
+calls, roughly \$5, a few days of work. ``\textbf{Surviving}'' the prototype means all five of these checks
+come back \emph{pass}:
+\begin{enumerate}[label=\textbf{Q\arabic*.}]
+  \item The fit \emph{separately} recovers $\beta$ and the history effect (they are not collinear).
+  \item Adding history improves \emph{held-out} choice prediction beyond current prices alone.
+  \item The history effect \emph{survives the must-buy-today arm} --- so it is genuinely $r-p$, not
+        waiting/trend.
+  \item The realized $\hat r-p$ gaps have support on \emph{both} sides of zero (the surprise prices worked;
+        identification not destroyed by good forecasting).
+  \item Plugging the estimates into the simulation moves market prices \emph{non-trivially} in Phase B.
+\end{enumerate}
+\crit{If any answer is ``no,'' stop --- do not scale.} Honest risks: the waiting confound may dominate
+(our modal-failure candidate, caught by Q3), or forecasts may be too accurate to leave identifying
+variation (caught by Q4), or $\hat\gamma$ may be too prompt-unstable to carry signal. The prototype is a
+genuine go/no-go, and even a ``no'' is a publishable observation about AI shopper behavior.
+
+%----------------------------------------------------------
+\subsection*{Which referee points this addresses (and which it does not)}
+
+\renewcommand{\arraystretch}{1.2}
+\begin{center}
+\begin{tabular}{@{}p{0.16\textwidth}p{0.78\textwidth}@{}}
+\toprule
+\textbf{Points} & \textbf{How} \\
+\midrule
+R1.3, R2.4 & AI agents become market participants with \emph{measured} behavior and an adoption sweep; the
+AI framing becomes load-bearing. \\
+R3.7 & $\eta$-sweep separates individual choice from collective/market effect; replaces the stylized
+$2\times2$ with measured behavior and CIs. \\
+R1.2 & Gain/loss asymmetry ($\gamma_G\neq\gamma_L$) estimated directly. \\
+R3.1, R2.1 (\emph{partial}) & Estimates $\gamma$ and $\beta$ \emph{separately} in the $r\neq p$ regime,
+giving $\gamma$ empirical content distinct from elasticity. Does \crit{not} fix the on-path identification
+in the theory model. \\
+Sec.~6.3 & Forecast elicitation locates the agent between exp-smoothing and Q-learning reference formation
+--- and supplies the $\hat r(h)$ rule Phase~B needs. \\
+\midrule
+\crit{Not addressed} & Dynamic/MPE theory; on-path elasticity identification in the model;
+open-the-black-box mechanism diagnostics. These require the foundation work, not this extension. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+%----------------------------------------------------------
+\subsection*{The reframed contribution (one line)}
+
+\emph{We experimentally manipulate the memory and objectives of AI shopping agents, estimate how these
+designs shape their price expectations and purchasing behavior, and quantify how consumer-side AI adoption
+changes the pricing strategies learned by seller algorithms.} That is a legitimate AI-agent contribution
+--- and it avoids the awkward ``give agents human biases'' recommendation by framing reference dependence
+as an engineered design choice.
+
+\end{document}

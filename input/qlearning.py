@@ -47,13 +47,52 @@ def compute_reference_price(game, last_reference_price, last_reference_observed_
         If common_reference=True, returns single integer.
         If common_reference=False, returns ndarray with shape (n,).
     """
+    if getattr(game, "continuous_reference", False):
+        # ---- Continuous-reference robustness fix (ES path) -------------------
+        # Smooth the reference as a continuous float in PRICE units and round to
+        # a grid index ONLY for the returned discrete reference. This removes the
+        # index-space re-rounding trap of the legacy branch below (an absorbing
+        # offset node that keeps r ~1 node above p at high gamma), so at a price
+        # fixed point r relaxes to p exactly. The per-step update mirrors
+        # td3learning.update_reference; it is inlined here to avoid importing
+        # torch (a td3 dependency) into the tabular path.
+        lam = game.lambda_
+        # Newest observed prices, in price units (reference_memory column 0).
+        prices = np.asarray(game.A[np.asarray(last_reference_observed_prices)], dtype=float)
+        p_new = prices[:, 0]
+        r_prev = game.last_observed_reference_cont
+        if game.common_reference:
+            d = np.asarray(last_observed_demand[:, 0], dtype=float)
+            denom = np.sum(d)
+            weighted = np.sum(p_new * d) / denom if denom > 0 else np.mean(p_new)
+            r_cont = float(lam * float(r_prev) + (1.0 - lam) * weighted)
+            game.last_observed_reference_cont = r_cont
+            return int(np.argmin(np.abs(game.R - r_cont)))
+        else:
+            r_cont = lam * np.asarray(r_prev, dtype=float) + (1.0 - lam) * p_new
+            game.last_observed_reference_cont = r_cont
+            return np.array([int(np.argmin(np.abs(game.R - rc)))
+                             for rc in np.atleast_1d(r_cont)])
+
     if game.common_reference:
         # Weighted average by demand
         weighted_prices = last_reference_observed_prices * last_observed_demand
-        total_weighted_prices = np.sum(weighted_prices, axis=0) / np.sum(last_observed_demand, axis=0)
+        total_demand = np.sum(last_observed_demand, axis=0)
+        # Guard against zero total demand. This can occur under the clipped
+        # LINEAR demand at high gamma, where both firms' demand hit the zero
+        # floor simultaneously; the demand-weighted price is then undefined, so
+        # fall back to the unweighted mean price. For logit demand total_demand
+        # is always > 0, so this leaves the paper runs numerically unchanged.
+        with np.errstate(invalid='ignore', divide='ignore'):
+            weighted_avg = np.sum(weighted_prices, axis=0) / total_demand
+        fallback = np.mean(last_reference_observed_prices, axis=0)
+        total_weighted_prices = np.where(total_demand > 0, weighted_avg, fallback)
         ref_price_continuous = (game.lambda_ * last_reference_price +
                                 (1 - game.lambda_) * np.mean(total_weighted_prices))
-        ref_price_index = int(np.clip(np.round(ref_price_continuous), 0, game.k - 1))
+        # .item() extracts the scalar from 0-d/size-1 arrays (numpy>=2 forbids
+        # int() on 1-element arrays; values are identical to the legacy runs)
+        ref_price_index = int(np.clip(np.round(np.asarray(ref_price_continuous)),
+                                      0, game.k - 1).item())
 
     else:
         # Individual exponential smoothing (no weighting by demand)
@@ -103,14 +142,25 @@ def update_q(game, s, a, sprime, pi, stable):
         stable = (stable + same_argmax) * same_argmax
     return game.Q, stable
 
-def check_convergence(game, t, stable):
+def check_convergence(game, t, stable, stable_reference=0,
+                      require_reference_stability=False):
 
-    """Check if game converged"""
+    """Check if game converged.
+
+    The firms' policy is stable when ``stable > game.tstable`` (the standard
+    Calvano argmax-stability rule). When ``require_reference_stability`` is True
+    the game is only declared converged once the reference-price index has ALSO
+    been stable for the same window (``stable_reference > game.tstable``); this
+    is the opt-in dual criterion requested for the reference-Q-learning runs.
+    Default behaviour (require_reference_stability=False) is unchanged.
+    """
     if (t % game.tstable == 0) & (t > 0):
         if game.aprint:
             sys.stdout.write("\rt=%i" % t)
             sys.stdout.flush()
-    if stable > game.tstable:
+    firm_stable = stable > game.tstable
+    ref_stable = (stable_reference > game.tstable) if require_reference_stability else True
+    if firm_stable and ref_stable:
         if game.aprint:
             print('Converged!')
         return True
@@ -121,17 +171,46 @@ def check_convergence(game, t, stable):
     return False
 
 
-def simulate_game(game):
-    """Simulate game"""
-    consumer_reference_agent = None
+def simulate_game(game, consumer_reference_agent=None, train_reference=True):
+    """Simulate game.
+
+    Parameters
+    ----------
+    game : model
+        The pricing game instance.
+    consumer_reference_agent : ConsumerQReference or None, optional
+        If provided and ``game.ref_prediction == 'qlearning'``, this pretrained
+        consumer Q-learning agent will be used to generate reference prices.
+        When ``train_reference`` is False, the agent will *not* be updated
+        during the simulation (two-stage learning). If None, a fresh
+        ``ConsumerQReference`` will be created when needed.
+    train_reference : bool, optional
+        If True (default), the consumer reference Q-learner is updated each
+        period when ``ref_prediction == 'qlearning'``. If False, the agent is
+        only queried via ``predict`` and never updated. This lets you run the
+        original “joint learning” setup or a two-stage setup with a frozen
+        pretrained reference agent.
+    """
+
     s = generate_init_state(game)
 
     # Initialize last observed prices 
     game.last_observed_prices = np.reshape(s[:game.n * game.memory], (game.n, game.memory)).copy()  
 
     if game.demand_type in ["reference", "misspecification"]:
-        if game.ref_prediction == "qlearning":
-            consumer_reference_agent = ConsumerQReference(game.n, game.k, game.reference_memory , common_reference=game.common_reference)
+        if game.ref_prediction == "qlearning" and consumer_reference_agent is None:
+            # Create a fresh consumer Q-learning agent only if one was not
+            # supplied (backwards-compatible default behaviour).
+            consumer_reference_agent = ConsumerQReference(
+                game.n,
+                game.k,
+                game.reference_memory,
+                common_reference=game.common_reference,
+                # Use game parameters by default so behaviour matches firms
+                alpha=game.alpha / 2,
+                beta=game.beta,
+                delta=game.delta,
+            )
 
         # **Initialize reference price tracking**
         initial_price = s[:game.n].reshape(game.n, 1)  # Extract initial prices
@@ -140,17 +219,50 @@ def simulate_game(game):
         # **Initialize observed demands (equal share assumption)**
         game.last_observed_demand[:, :] = 1 / game.n  # Set initial demands as equal weights
 
+        # **Seed the continuous reference companion** (robustness fix, ES path):
+        # start it at the initial prices (mean for a common reference, own price
+        # otherwise) so it can relax to the firms' price. Keep the discrete
+        # reference index consistent with it.
+        if game.ref_prediction != "qlearning" and getattr(game, "continuous_reference", False):
+            init_prices = np.asarray(game.A[np.asarray(s[:game.n])], dtype=float)
+            if game.common_reference:
+                game.last_observed_reference_cont = float(game.reference_price(init_prices))
+                game.last_observed_reference = int(
+                    np.argmin(np.abs(game.R - game.last_observed_reference_cont)))
+            else:
+                game.last_observed_reference_cont = init_prices.copy()
+                game.last_observed_reference = np.array(
+                    [int(np.argmin(np.abs(game.R - rc))) for rc in init_prices])
+
 
     #s = game.s0
     stable = 0
+    stable_reference = 0
     converged = False
+
+    # Opt-in convergence / diagnostics options (default off -> paper behaviour).
+    has_reference = game.demand_type in ["reference", "misspecification"]
+    require_ref_stable = bool(getattr(game, "require_reference_stability", False))
+    track_q = bool(getattr(game, "track_q_stabilization", False))
+    q_stab_interval = int(getattr(game, "q_stab_interval", 1000))
+    q_diag = []  # rows of [t, mean|dQ_firm|, mean|dQ_ref| (nan if no ref-Q)]
+    if track_q:
+        Q_prev = game.Q.copy()
+        if game.ref_prediction == "qlearning" and consumer_reference_agent is not None:
+            Qref_prev = consumer_reference_agent.Q.copy()
+        else:
+            Qref_prev = None
+
     # Iterate until convergence
     for t in range(int(game.tmax)):
+
+        if t > 2e5:
+            rrr = 1
 
         a = pick_strategies(game, s, t)
 
 
-        if game.demand_type == 'noreference':
+        if game.demand_type in ('noreference', 'price_sensitivity'):
             pi = game.PI[tuple(a)]
         if game.demand_type == 'reference':
             if game.common_reference:
@@ -172,7 +284,12 @@ def simulate_game(game):
         # **Update Last Observed Prices**
         game.last_observed_prices[:, 1:] = game.last_observed_prices[:, :-1]  # Shift old prices
         game.last_observed_prices[:, 0] = a  # Insert new prices at first position
-        
+
+        # Snapshot the reference index BEFORE it is recomputed this step, so we
+        # can measure reference-price stability (opt-in dual convergence rule).
+        if has_reference and require_ref_stable:
+            prev_reference = np.copy(np.asarray(game.last_observed_reference))
+
         if game.demand_type in ["reference", "misspecification"]:
             if game.ref_prediction != "qlearning":
                 game.last_reference_observed_prices[:, 1:] = game.last_reference_observed_prices[:, :-1]  # Shift old prices
@@ -191,16 +308,36 @@ def simulate_game(game):
                 game.last_reference_observed_prices[:, 0] = a
                 # Updated state for consumer_reference_agent
                 sprime_reference = game.last_reference_observed_prices
-                consumer_reference_agent.update(game.last_observed_reference, s_reference, a, sprime_reference)   
-                
-                predicted_r = consumer_reference_agent.predict(game.last_reference_observed_prices, t)
+
+                # In the original setup we always updated the reference agent
+                # jointly with the firms. To support a two-stage protocol
+                # where the reference process is pretrained and then frozen,
+                # we condition the update on ``train_reference``.
+                if train_reference:
+                    consumer_reference_agent.update(
+                        game.last_observed_reference,
+                        s_reference,
+                        a,
+                        sprime_reference,
+                    )
+
+                predicted_r = consumer_reference_agent.predict(
+                    game.last_reference_observed_prices,
+                    t,
+                )
                 game.last_observed_reference = predicted_r
 
-                
+        # Reference-price stability counter, mirroring the firm argmax rule in
+        # update_q: increment by n each step the reference index is unchanged,
+        # reset to 0 on any change. Scaled by n so it reaches game.tstable after
+        # the same number of consecutive stable steps as the firms' counter.
+        if has_reference and require_ref_stable:
+            same_ref = int(np.array_equal(
+                np.asarray(game.last_observed_reference), prev_reference))
+            stable_reference = (stable_reference + game.n * same_ref) * same_ref
 
-               
         # **Update State**
-        if game.demand_type == 'noreference':
+        if game.demand_type in ('noreference', 'price_sensitivity'):
             sprime = game.last_observed_prices.flatten()
 
         elif game.demand_type == 'reference':
@@ -218,10 +355,96 @@ def simulate_game(game):
         #sprime = a
         game.Q, stable = update_q(game, s, a, sprime, pi, stable) # Q-learning update
         s = sprime
-        if check_convergence(game, t, stable):
+
+        # Q-value stabilization diagnostic: every q_stab_interval steps record
+        # the mean absolute per-cell change of the firms' Q-table (and the
+        # consumer reference agent's, when reference learning is Q-based) since
+        # the last snapshot. Lets us report whether Q values settle *before* the
+        # argmax-based convergence rule fires.
+        if track_q and (t > 0) and (t % q_stab_interval == 0):
+            dQ_firm = float(np.mean(np.abs(game.Q - Q_prev)))
+            Q_prev = game.Q.copy()
+            if Qref_prev is not None:
+                dQ_ref = float(np.mean(np.abs(consumer_reference_agent.Q - Qref_prev)))
+                Qref_prev = consumer_reference_agent.Q.copy()
+            else:
+                dQ_ref = float("nan")
+            q_diag.append((t, dQ_firm, dQ_ref))
+
+        if check_convergence(game, t, stable, stable_reference, require_ref_stable):
             converged = True
             break
+
+    # Expose the Q-stabilization trajectory (empty array when tracking is off).
+    game.q_diag = np.asarray(q_diag, dtype=float) if q_diag else np.zeros((0, 3))
     return game, converged, t, consumer_reference_agent
+
+
+def pretrain_consumer_reference(game, T_ref=200000):
+    """Pre-train a consumer Q-learning reference agent.
+
+    This function runs a simple environment where prices follow a random
+    process and the consumer reference agent learns to predict the next
+    period's prices based on past price history. The pretrained agent can
+    then be passed into :func:`simulate_game` with ``train_reference=False``
+    to implement a two-stage learning protocol where firms learn against a
+    (approximately) stationary reference process.
+
+    Parameters
+    ----------
+    game : model
+        A game instance providing ``n``, ``k`` and ``reference_memory``.
+        Other game parameters (γ, loss aversion, etc.) are *not* used here;
+        only the price grid structure matters for reference formation.
+    T_ref : int, optional
+        Number of pretraining iterations for the consumer reference agent.
+
+    Returns
+    -------
+    ConsumerQReference
+        A pretrained consumer reference agent ready to be used in
+        :func:`simulate_game`.
+    """
+
+    # Instantiate a consumer reference agent using the same structural
+    # parameters as the game. We decouple its learning-rate schedule from
+    # the firms but keep them in the same ballpark.
+    cref = ConsumerQReference(
+        n_firms=game.n,
+        k=game.k,
+        memory=game.reference_memory,
+        common_reference=game.common_reference,
+        alpha=game.alpha / 2,
+        beta=game.beta,
+        delta=game.delta,
+    )
+
+    # Initialize a random price history (indices on the price grid)
+    price_hist = np.random.randint(0, game.k, size=(game.n, game.reference_memory))
+
+    for t in range(int(T_ref)):
+        # Current state for the reference agent
+        s = price_hist.copy()
+
+        # Agent predicts a reference based on current history
+        predicted_r = cref.predict(price_hist, t)
+
+        # Generate next-period prices from a simple random policy
+        a = np.random.randint(0, game.k, size=game.n)
+
+        # Shift history and insert the new prices
+        price_hist[:, 1:] = price_hist[:, :-1]
+        price_hist[:, 0] = a
+        sprime = price_hist.copy()
+
+        # Update reference agent based on the forecasting error
+        cref.update(predicted_r, s, a, sprime)
+
+    # We deliberately **do not** freeze the agent here. The returned
+    # ``cref`` keeps its own exploration schedule and can continue to
+    # learn during the main firm-learning phase. Pretraining simply
+    # provides a better initialization of its Q-table.
+    return cref
 
 
 def run_sessions(game):
@@ -267,7 +490,7 @@ def run_sessions(game):
 
         # If converged, analyze post-convergence cycles
         if converged:
-            if game.demand_type == 'noreference':
+            if game.demand_type in ('noreference', 'price_sensitivity'):
                 # Pass iSession to detect_cycle function
                 cycle_length, visited_states, visited_profits, price_history, _, consumer_surplus_history = detect_cycle(game, iSession)  # Now passing iSession
                 cycle_data = {
@@ -299,8 +522,21 @@ def compute_consumer_surplus(game, prices, r):
     """
     Computes consumer surplus given current prices and reference price.
     """
+    # Linear reference-dependent model (input.init_linear.LinearModel): the
+    # linear demand system does not share the logit surplus formula, and eq. (3)
+    # does not uniquely pin a consumer surplus. We report the standard linear
+    # proxy CS = 0.5 * sum_i D_i^2 (exact for symmetric linear demand). This is
+    # a secondary metric; the headline profit-gain result is exact regardless.
+    if getattr(game, 'is_linear', False):
+        d = game.demand(np.asarray(prices, dtype=float), r)
+        return 0.5 * np.sum(d ** 2)
+
     if game.demand_type == 'noreference':
         e = np.exp((game.a - prices) / game.mu)
+        surplus = game.mu * np.log(np.sum(e) + np.exp(game.a0 / game.mu))
+    elif game.demand_type == 'price_sensitivity':
+        # u = a - (1+gamma)*p, no reference term
+        e = np.exp((game.a - (1 + game.gamma) * prices) / game.mu)
         surplus = game.mu * np.log(np.sum(e) + np.exp(game.a0 / game.mu))
     elif game.demand_type in ["reference", "misspecification"]:
         # Effective price: p_i^eff = p_i + gamma * (p_i - r)
@@ -350,10 +586,10 @@ def detect_cycle(game, session_idx, consumer_reference_agent=None):
     p_reference = np.copy(game.last_reference_observed_prices)
     d = np.copy(game.last_observed_demand)
 
-    if game.demand_type == 'noreference':
+    if game.demand_type in ('noreference', 'price_sensitivity'):
         r = np.zeros(1, dtype=int)
         state = p.flatten()
-    
+
     if game.demand_type == 'reference':
         if game.common_reference:
             r = np.copy(game.last_observed_reference)  # Single value
@@ -361,7 +597,18 @@ def detect_cycle(game, session_idx, consumer_reference_agent=None):
         else:
             r = np.copy(game.last_observed_reference)  # Vector of firm-specific reference prices
             state = np.concatenate([p.flatten(), r])
-        
+
+        # Seed the continuous-reference companion from the converged reference
+        # index so it can relax to the firms' price along the frozen policy
+        # (robustness fix, ES path). compute_reference_price then updates it in
+        # place each period.
+        if game.ref_prediction != "qlearning" and getattr(game, "continuous_reference", False):
+            r_prices = np.asarray(game.R[np.asarray(r)], dtype=float).ravel()
+            if game.common_reference:
+                game.last_observed_reference_cont = float(r_prices[0])
+            else:
+                game.last_observed_reference_cont = r_prices.copy()
+
     if game.demand_type == 'misspecification':
         r = np.copy(game.last_observed_reference)
         state = p.flatten()
@@ -373,7 +620,7 @@ def detect_cycle(game, session_idx, consumer_reference_agent=None):
     # Main loop for detecting cycles
     for i_period in range(game.num_periods):
 
-        if game.demand_type == 'noreference':
+        if game.demand_type in ('noreference', 'price_sensitivity'):
             # Update price history
             if game.memory > 1:
                 p[:, 1:] = p[:, :-1]  # Shift older prices up
@@ -399,7 +646,7 @@ def detect_cycle(game, session_idx, consumer_reference_agent=None):
 
         price_history[:, i_period] = p_prime
         
-        if game.demand_type == 'noreference':
+        if game.demand_type in ('noreference', 'price_sensitivity'):
             # Record current state
             visited_states[i_period] = compute_state_number(game, p, 1)
             # Compute and record profits
@@ -458,12 +705,12 @@ def detect_cycle(game, session_idx, consumer_reference_agent=None):
                     
                     game.cycle_consumer_surplus[:cycle_length, session_idx] = consumer_surplus_history
                     
-                    if game.demand_type == 'noreference':
-                        return cycle_length, visited_states, visited_profits, price_history, reference_price_history, consumer_surplus_history 
+                    if game.demand_type in ('noreference', 'price_sensitivity'):
+                        return cycle_length, visited_states, visited_profits, price_history, reference_price_history, consumer_surplus_history
                     if game.demand_type in ["reference", "misspecification"]:
                         return cycle_length, visited_states, visited_profits, price_history, reference_price_history, consumer_surplus_history
                 
-        if game.demand_type == 'noreference':
+        if game.demand_type in ('noreference', 'price_sensitivity'):
             # Update p_prime for next iteration
             p_prime = game.index_strategies[(slice(None),) + tuple(p.flatten()) + (session_idx,)]
 

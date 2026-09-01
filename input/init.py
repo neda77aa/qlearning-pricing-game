@@ -55,10 +55,42 @@ class model(object):
         self.reference_memory = kwargs.get('reference_memory', 1)
         self.common_reference = kwargs.get('common_reference', True)
         self.ref_prediction = kwargs.get('ref_prediction', 'exponentially_smoothing')
+        # Continuous-reference robustness fix (exponentially_smoothing path only).
+        # When True, the reference is smoothed as a continuous float (price units)
+        # and rounded to a grid index ONLY for the Q-state / PI reward lookup.
+        # This removes the index-space re-rounding trap in compute_reference_price
+        # (an absorbing offset node that keeps r above p at high gamma). Default
+        # False preserves the committed logit paper results exactly.
+        self.continuous_reference = kwargs.get('continuous_reference', False)
+        # Optional explicit action-price grid: (lower_bound, upper_bound). When
+        # provided, init_actions() uses it verbatim (no extension) and freezes
+        # it across the whole gamma sweep. Used for the Reviewer-2
+        # price_sensitivity benchmark so both models share ONE fixed grid.
+        self.grid_bounds = kwargs.get('grid_bounds', None)
+
+        # --- Convergence / diagnostics options (opt-in; default off so every
+        # committed paper run is numerically unchanged) ---
+        # require_reference_stability: when True a session is declared converged
+        # only when BOTH the firms' Q-argmax policy AND the reference-price index
+        # have been stable for the usual tstable window (see
+        # qlearning.check_convergence). Default False = firm-only Calvano rule.
+        self.require_reference_stability = kwargs.get('require_reference_stability', False)
+        # track_q_stabilization: when True, simulate_game records the mean
+        # absolute per-cell change of the firms' (and, under ref_prediction
+        # 'qlearning', the consumer reference agent's) Q-table every
+        # q_stab_interval steps, so we can report whether the Q values settle
+        # before the argmax-based convergence fires. Trajectory stored on
+        # game.q_diag as an (m, 3) array of [t, mean|dQ_firm|, mean|dQ_ref|].
+        self.track_q_stabilization = kwargs.get('track_q_stabilization', False)
+        self.q_stab_interval = int(kwargs.get('q_stab_interval', 1000))
 
 
         # Get demand_type from kwargs, defaulting to 'noreference'
-        valid_demand_types = {'reference', 'noreference','misspecification'}  # Allowed values
+        # 'price_sensitivity' is the Reviewer-2 benchmark: u = a - (1+gamma)*p,
+        # i.e. the reference model with the reference term removed but the same
+        # effective price weight. Structurally it behaves like 'noreference'
+        # (no reference dimension in the state), only the demand math differs.
+        valid_demand_types = {'reference', 'noreference', 'misspecification', 'price_sensitivity'}  # Allowed values
         self.demand_type = kwargs.get('demand_type', 'noreference')
 
         # Validate input
@@ -85,7 +117,10 @@ class model(object):
         self.demand_type = 'noreference'
         self.pmin_max_noreference = self.compute_p_competitive_monopoly()
         self.demand_type = 'reference'
+        # gamma_prox = self.gamma 
+        # self.gamma = 3
         self.pmin_max_reference = self.compute_p_competitive_monopoly()
+        # self.gamma = gamma_prox
         self.demand_type = demand_type
         
 
@@ -97,9 +132,8 @@ class model(object):
         self.PG = self.init_PG()
         self.Q = self.init_Q()
 
-
         # Derived properties
-        if self.demand_type == 'noreference':
+        if self.demand_type in ('noreference', 'price_sensitivity'):
             self.num_states = self.k ** (self.n * self.memory)
         if self.demand_type == 'reference':
             self.num_states = self.k ** (self.n * self.memory) * self.k 
@@ -116,7 +150,8 @@ class model(object):
             ref_shape = (self.n,)  # each firm has its own reference price
 
         if self.ref_prediction == "qlearning":
-            self.reference_memory = self.reference_memory + 1
+            self.reference_memory = self.reference_memory #+ 1
+            self.tstable = self.tstable 
 
         # Initialize all the variables with zeros
         self.converged = np.zeros(self.num_sessions, dtype=bool)  # Convergence status
@@ -135,6 +170,14 @@ class model(object):
         self.profit_gains = np.zeros((self.num_actions, self.n), dtype=float)  # Profit gains
         self.last_observed_prices = np.zeros((self.n, self.memory), dtype=int)  # last prices
         self.last_observed_reference = np.zeros(ref_shape, dtype=int)
+        # Continuous companion to last_observed_reference (price units). Only used
+        # when continuous_reference=True; carries the un-rounded smoothed reference
+        # so it can relax to the firms' price at a fixed point. Scalar for a common
+        # reference, else one per firm.
+        if self.common_reference:
+            self.last_observed_reference_cont = 0.0
+        else:
+            self.last_observed_reference_cont = np.zeros(self.n, dtype=float)
         self.last_reference_observed_prices = np.zeros((self.n, self.reference_memory), dtype=int)  # last prices
         self.last_observed_demand = np.zeros((self.n, self.reference_memory), dtype=float)  # last shares for each firm
     
@@ -154,6 +197,15 @@ class model(object):
         
         if self.demand_type == 'noreference':
             e = np.exp((self.a - p) / self.mu)
+            d = e / (np.sum(e) + np.exp(self.a0 / self.mu))
+
+        elif self.demand_type == 'price_sensitivity':
+            # Reviewer-2 benchmark: pure price sensitivity, NO reference term.
+            #   u = a - (1+gamma)*p   ->   p_eff = (1+gamma)*p
+            # This keeps the same effective price weight (1+gamma) as the
+            # reference model's deviation elasticity, but there is no r.
+            p_eff = (1 + self.gamma) * p
+            e = np.exp((self.a - p_eff) / self.mu)
             d = e / (np.sum(e) + np.exp(self.a0 / self.mu))
 
         elif self.demand_type in ["reference", "misspecification"]:
@@ -204,13 +256,16 @@ class model(object):
         d = self.demand(p)
         if self.demand_type == 'noreference':
             zero = 1 - (p - self.c) * (1 - d) / self.mu
+        elif self.demand_type == 'price_sensitivity':
+            # d/dp of (p-c)*d with e = exp((a-(1+gamma)p)/mu) gives factor (1+gamma)
+            zero = 1 - (1 + self.gamma) * (p - self.c) * (1 - d) / self.mu
         elif self.demand_type in ["reference", "misspecification"]:
             if self.reference_loss_aversion:
                 p_c = p.copy()
                 r  = self.reference_price(p_c)
                 # Compute smooth price indicators
-                price_above_r = 1 / (1 + np.exp(-10 * (p - r)))  # Smooth transition for p > r
-                price_below_r = 1 / (1 + np.exp(10 * (p - r)))   # Smooth transition for p < r
+                price_above_r = 1 / (1 + np.exp(-40 * (p - r)))  # Smooth transition for p > r
+                price_below_r = 1 / (1 + np.exp(40 * (p - r)))   # Smooth transition for p < r
 
                 zero = 1 - (1 + self.gamma * price_below_r  + self.gamma * self.lossaversion * price_above_r) * (p - self.c) * (1 - d) / self.mu  # Adjusted FOC
             else: 
@@ -227,13 +282,15 @@ class model(object):
 
         if self.demand_type == 'noreference':
             zero = 1 - ((p - self.c) * (1 - d) / self.mu) + ((total_contribution - own_contribution) / self.mu)
+        elif self.demand_type == 'price_sensitivity':
+            zero = 1 - (1 + self.gamma) * ((p - self.c) * (1 - d) / self.mu) + (1 + self.gamma) * ((total_contribution - own_contribution) / self.mu)
         elif self.demand_type in ["reference", "misspecification"]:
             if self.reference_loss_aversion:
                 p_c = p.copy()
                 r  = self.reference_price(p_c)
                 # Compute smooth price indicators
-                price_above_r = 1 / (1 + np.exp(-10 * (p - r)))  # Smooth transition for p > r
-                price_below_r = 1 / (1 + np.exp(10 * (p - r)))   # Smooth transition for p < r
+                price_above_r = 1 / (1 + np.exp(-40 * (p - r)))  # Smooth transition for p > r
+                price_below_r = 1 / (1 + np.exp(40 * (p - r)))   # Smooth transition for p < r
 
                 zero = 1 - (1 + self.gamma * price_below_r  + self.gamma * self.lossaversion * price_above_r) * ((p - self.c) * (1 - d) / self.mu) + (1 + self.gamma * price_below_r  + self.gamma * self.lossaversion * price_above_r) * ((total_contribution - own_contribution) / self.mu)
             else: 
@@ -307,6 +364,16 @@ class model(object):
             Discretized set of reference prices.
         """
         type = 2
+
+        # Explicit grid override (used by the price_sensitivity benchmark and
+        # the reference robustness run): use the given (low, high) verbatim as
+        # the final grid, no extension, frozen across the whole gamma sweep.
+        if self.grid_bounds is not None:
+            lower_bound, upper_bound = self.grid_bounds
+            A = np.linspace(lower_bound, upper_bound, self.k)
+            R = np.linspace(lower_bound, upper_bound, self.k)
+            return A, R
+
         if type == 1:
             # Compute the lower and upper bounds of the price grid
             p_nash, p_coop = min(self.p_minmax[0]), max(self.p_minmax[1])
@@ -315,7 +382,7 @@ class model(object):
             # Compute the lower and upper bounds considering both demand types
             p_nash = np.min([np.min(self.pmin_max_noreference), np.min(self.pmin_max_reference)])
             p_coop = np.max([np.max(self.pmin_max_noreference), np.max(self.pmin_max_reference)])
-        
+
         # Calculate bounds
         lower_bound = p_nash - self.extend * (p_coop - p_nash)
         upper_bound = p_coop + self.extend * (p_coop - p_nash)
@@ -334,7 +401,7 @@ class model(object):
     def init_state(self):
         """Get state dimension and initial state"""
         """Each Player action space is a grid of k points(prices)"""
-        if self.demand_type in ["noreference", "misspecification"]:
+        if self.demand_type in ["noreference", "misspecification", "price_sensitivity"]:
             sdim = tuple([self.k] * (self.n * self.memory))
             adim = tuple([self.k] * self.n)
         if self.demand_type == 'reference':
@@ -352,7 +419,7 @@ class model(object):
     def compute_profits(self, p, r=None):
         """Compute payoffs considering reference price"""
         
-        if self.demand_type == 'noreference':
+        if self.demand_type in ('noreference', 'price_sensitivity'):
             d = self.demand(p)  # Demand without reference
         elif self.demand_type in ["reference", "misspecification"]:
             if r is None:
@@ -367,7 +434,7 @@ class model(object):
     def init_PI(game):
         """Initialize Profits (actions x reference prices x agents)"""
         
-        if game.demand_type == 'noreference':
+        if game.demand_type in ('noreference', 'price_sensitivity'):
             PI = np.zeros(game.adim + (game.n,))
             for a in product(*[range(i) for i in game.adim]):
                 p = np.asarray(game.A[np.asarray(a)])
@@ -426,7 +493,7 @@ class model(object):
             other_agents = [i for i in range(game.n) if i != n]
 
             # No reference price scenario
-            if game.demand_type == 'noreference':
+            if game.demand_type in ('noreference', 'price_sensitivity'):
                 pi_summed = np.sum(
                     game.PI.take(indices=n, axis=-1),
                     axis=tuple(other_agents)

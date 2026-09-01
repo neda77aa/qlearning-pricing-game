@@ -10,6 +10,8 @@ import multiprocessing as mp
 from functools import partial
 import copy
 import random
+import secrets
+
 
 ###############################################
 ######## Saving Experimat 
@@ -280,6 +282,7 @@ def run_experiment(game, alpha_values, beta_values, num_sessions=1000, demand_ty
     
     for i, alpha in enumerate(alpha_values):
         for j, beta in enumerate(beta_values):
+
             # Configure experiment
             experiment_id = f"alpha_{alpha}_beta_{beta}"
             
@@ -439,7 +442,7 @@ def run_single_session(game, alpha, beta, iSession):
 
 
     # 🔐 Set unique random seed for each session
-    seed = 42 + iSession  # Or use any deterministic function of iSession
+    seed = secrets.randbits(32)   # 32-bit integer from OS entropy
     np.random.seed(seed)
     random.seed(seed)
 
@@ -531,6 +534,7 @@ def run_experiment_parallel(game, alpha_values, beta_values, num_sessions=1000, 
     
     for i, alpha in enumerate(alpha_values):
         for j, beta in enumerate(beta_values):
+
 
             # Check if this alpha-beta combination has already been run
             run_dir = os.path.join("../Results/experiments", experiment_name, f"alpha_{alpha}_beta_{beta}")

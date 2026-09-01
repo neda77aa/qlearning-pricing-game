@@ -1,16 +1,27 @@
-# Python bytecode
+# Python
 __pycache__/
 *.py[cod]
-
-# Jupyter checkpoints
+*.egg-info/
 .ipynb_checkpoints/
 
-# macOS
+# OS
 .DS_Store
 
-# Editor settings
-.vscode/
+# LaTeX build artifacts
+*.aux
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.log
+*.out
+*.toc
+*.bbl
+*.blg
+texput.*
 
-# Local outputs (adjust if you intentionally version results)
-Results/
-../Results/
+# Local run logs
+*.log
+nohup.out
+
+# Overleaf-synced paper (its own git repo)
+paper_overleaf/
