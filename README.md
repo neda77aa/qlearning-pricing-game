@@ -24,7 +24,7 @@ input/                       core model + learning code (imported by every drive
 main.py                      single-experiment entry point (γ×δ grid is the active default)
 main_gamma_only_mu_c.py      γ sweeps at varied μ and c
 main_linear.py               linear-demand γ sweep (exponential-smoothing reference)
-main_td3.py                  quick TD3 smoke run
+main_td3.py                  TD3 (deep RL) sweep — the paper's TD3 run
 
 <driver scripts>             produce results under ../Results/experiments  (see §3)
 <figure scripts>             turn results into the paper's PNGs             (see §4)
@@ -75,10 +75,7 @@ All commands are `$PY <script>` from the repo root. Output folder is under
 | `main.py` (`Desired_Experiment='gamma_delta'`) | `gamma_delta/gamma_delta_reference_True_contref/` | γ×δ heatmap grid (30×30, 50 sess). |
 | `main_linear.py` | `linear_benchmark/gamma_only_linear[_beta4e-6]/` | Linear-demand γ sweep, **ES reference**. |
 | `run_linear_qref.py` | `linear_benchmark/gamma_only_linear_qref_beta4e-6[_dualconv]/` | Linear-demand γ sweep, **Q-learning reference**. |
-| `production_sweep.py` | `td3_production_reference_15g_20s/` | TD3 production sweep, lr=3e-4 (baseline). |
-| `run_td3_lr1e4.py` | `…_15g_20s_lr1e-4/` | TD3 sweep, lr=1e-4, 20 sess. |
-| `run_td3_lr1e4_50s.py` | `td3_production_reference_15g_50s_lr1e-4/` | TD3 sweep, lr=1e-4, **50 sess** — source for the paper's TD3 figures. |
-| `run_td3_qref.py` | `…_15g_50s_lr1e-4_qref/` | TD3 sweep with a Q-learning reference. |
+| `main_td3.py` | `td3_production_reference_15g_50s_lr1e-4/` | **TD3 (deep RL) sweep — the paper's TD3 run.** Self-contained: 15 γ, 50 sess, lr=1e-4, full-history buffer; also writes `rollout_paths.npz` + per-gamma price/profit grids. Source for all TD3 figures. |
 | `impulse_response.py {tabular|td3|both}` | `impulse_response/irf[_td3]_gamma_*.npz` | Deviation/punishment simulations from converged strategies. |
 | `irf_new_sweep.py` | `…_ESref/Figures/irf_gamma_*_dev-*.npz` | Tabular IRF sweep (imports `impulse_response`). |
 
@@ -103,7 +100,7 @@ that constant to `paper_overleaf/Images` before running).
 | Firm-specific reference (`fig:gammaonly_crtruefalse_qlr`) | `4_seperate_figures/Firm-specific/…` | notebook + `gen_altbench_gains.py` |
 | Q-learning reference (`fig:qlr_crtrue`) | `4_seperate_figures/exp_smooth/…` | notebook + `gen_altbench_gains.py` |
 | Linear demand (`fig:linear_gamma`) | `4_seperate_figures_beta4e6/linear/…` | `run_linear_qref.py` → `recolor_linear_td3_purple.py` (price/profit) → `recompute_linear_gains_longterm.py` (overwrites the two gain panels) |
-| TD3 (`fig:td3_gamma`, Tab `irf_td3`) | `4_seperate_figures_lr1e-4/td3/…` | `run_td3_lr1e4_50s.py` → `recolor_linear_td3_purple.py` + `gen_altbench_gains.py`; TD3 IRF table: `impulse_response.py td3` → `paper_irf_figures.py` |
+| TD3 (`fig:td3_gamma`, Tab `irf_td3`) | `4_seperate_figures_lr1e-4/td3/…` | `main_td3.py` → `recolor_linear_td3_purple.py` + `gen_altbench_gains.py`; TD3 IRF table: `impulse_response.py td3` → `paper_irf_figures.py` |
 | TD3 cycles (`fig:td3_cycles`) | `4_seperate_figures_lr1e-4/td3_cycles/td3_cycle_examples.png` | `plot_td3_cycles.py` (reads `rollout_paths.npz`) |
 | Intro schematics | `Images/idea.png`, `Images/framework.png` | static assets (no script) |
 | Consumer-welfare tables (`tab:consumer_*`) | — | hand-authored LaTeX (no script) |
